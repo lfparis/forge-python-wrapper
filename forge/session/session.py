@@ -197,7 +197,7 @@ class Session(object):
                 byte_arrays.append(File.ReadAllBytes(filepath))
             if byte_data:
                 pass
-                # TODO
+                # TODO - Add byte input for System.Net
             if urlencode:
                 byte_arrays.append(UTF8.GetBytes(self._url_encode(urlencode)))
 
