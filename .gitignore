@@ -11,7 +11,6 @@ build/
 dist/
 env/
 
-examples/
 tests/
 
 requirements.txt
