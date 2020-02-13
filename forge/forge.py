@@ -389,26 +389,27 @@ class Project(object):
 
     @_validate_app
     def get_top_folders(self):
-        self.top_folders = self.app.api.dm.get_top_folders(
-            self.id["dm"], x_user_id=self.x_user_id
-        ).get("data")
+        self.top_folders = [
+            Folder(
+                folder["attributes"]["name"],
+                folder["id"],
+                data=folder,
+                project=self,
+                host_id=None,
+            )
+            for folder in self.app.api.dm.get_top_folders(
+                self.id["dm"], x_user_id=self.x_user_id
+            ).get("data")
+        ]
         return self.top_folders
 
     def get_contents(self):
+        # TODO: Make recursive
         if not getattr(self, "top_folders", None):
             self.get_top_folders()
 
-        self.contents = {}
         for folder in self.top_folders:
-            folder_name = folder["attributes"]["name"]
-            self.contents[folder_name] = {"self": folder, "type": folder}
-            folder_id = folder["id"]
-            folder_contents = self.get_folder_contents(folder_id)
-            for item in folder_contents:
-                if item["type"] == "folders":
-                    pass
-                else:
-                    pass
+            folder.contents = self.get_folder_contents(folder.id)
 
     @_validate_app
     def get_project_files_folder(self):
@@ -417,9 +418,7 @@ class Project(object):
 
         if self.top_folders:
             try:
-                folder_names = [
-                    folder["attributes"]["name"] for folder in self.top_folders
-                ]
+                folder_names = [folder.name for folder in self.top_folders]
                 if "Project Files" in folder_names:
                     index = folder_names.index("Project Files")
                     self.project_files_folder = self.top_folders[index]
@@ -526,6 +525,7 @@ class Folder(ForgeItem):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.type = "folders"
+        self.contents = []
 
 
 class File(ForgeItem):

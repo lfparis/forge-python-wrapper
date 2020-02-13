@@ -109,13 +109,13 @@ class ForgeBase(object):
 
 
 class ForgeItem:
-    def __init__(self, name, item_id, data, project=None):
+    def __init__(self, name, item_id, data=None, project=None, host_id=None):
         self.name = name
         self.id = item_id
         self.data = data
+        self.host_id = host_id
         if project:
             self.project = project
-        self.content = []
 
     @property
     def project(self):
