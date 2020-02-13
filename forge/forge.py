@@ -391,7 +391,7 @@ class Project(object):
     def get_top_folders(self):
         self.top_folders = self.app.api.dm.get_top_folders(
             self.id["dm"], x_user_id=self.x_user_id
-        )
+        ).get("data")
         return self.top_folders
 
     @_validate_app
@@ -399,15 +399,14 @@ class Project(object):
         if not getattr(self, "top_folders", None):
             self.get_top_folders()
 
-        if "data" in self.top_folders:
+        if self.top_folders:
             try:
                 folder_names = [
-                    folder["attributes"]["name"]
-                    for folder in self.top_folders["data"]
+                    folder["attributes"]["name"] for folder in self.top_folders
                 ]
                 if "Project Files" in folder_names:
                     index = folder_names.index("Project Files")
-                    self.project_files_folder = self.top_folders["data"][index]
+                    self.project_files_folder = self.top_folders[index]
                     return self.project_files_folder
             except Exception:
                 return
