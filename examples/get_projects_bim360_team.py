@@ -4,7 +4,7 @@ from forge import ForgeApp
 def main():
 
     app = ForgeApp(three_legged=True)
-    hub_type = ForgeApp.TYPES[ForgeApp.BIM_360_TYPES["b."]]["hubs"]
+    hub_type = ForgeApp.TYPES[ForgeApp.BIM_360_TYPES["a."]]["hubs"]
 
     app.get_hubs()
     hub_id = [
