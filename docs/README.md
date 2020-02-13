@@ -25,7 +25,7 @@ If the following Environment Variables are defined there is no need to explicitl
         FORGE_PASSWORD
 """
 
-# 3-legged authorization - Needed to work with BIM 360 Team Hubs
+# 3-legged context - Needed to work with BIM 360 Team Hubs
 app = ForgeApp(
     client_id="your_app_client_id",
     client_secret="your_app_client_secret",
@@ -52,7 +52,7 @@ parent_folder_id = pj.project_files_folder["id"]
 project.add_folder(parent_folder_id, "New Folder Name")
 
 
-# 2-legged authorization - Needed for methods that use the BIM 360 API
+# 2-legged context - Needed for methods that use the BIM 360 API
 app = ForgeApp(
     client_id="your_app_client_id",
     client_secret="your_app_client_secret",
