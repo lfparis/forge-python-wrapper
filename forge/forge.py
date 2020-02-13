@@ -525,8 +525,10 @@ class Project(object):
 class Folder(ForgeItem):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.type = "folders"
 
 
 class File(ForgeItem):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.type = "items"
