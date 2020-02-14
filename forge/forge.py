@@ -428,14 +428,6 @@ class Project(object):
         for folder in self.top_folders:
             folder.get_contents()
 
-    def walk(self):
-        if not getattr(self, "top_folders", None):
-            self.get_contents()
-
-        for folder in self.top_folders:
-            print(folder.name)
-            folder.walk(level=1)
-
     @_validate_app
     @_validate_bim360_hub
     def get_roles(self):
@@ -470,8 +462,36 @@ class Project(object):
             project_name=self.name,
         )
 
+    def find(self, value, key="name"):
+        """key = name or id"""
+        if key.lower() not in ("name", "id"):
+            raise ValueError()
 
-class ForgeItem(object):
+        if not getattr(self, "top_folders", None):
+            self.get_contents()
+
+        for folder in self.top_folders:
+            if getattr(folder, key, None) == value:
+                return folder
+            else:
+                for content, _ in folder._iter_contents():
+                    if getattr(content, key, None) == value:
+                        return content
+
+        return self.app.logger.warning(
+            "{}: {} not found in '{}'".format(key, value, self.name)
+        )
+
+    def walk(self):
+        if not getattr(self, "top_folders", None):
+            self.get_contents()
+
+        for folder in self.top_folders:
+            print(folder.name)
+            folder.walk(level=1)
+
+
+class Content(object):
     def __init__(self, name, item_id, data=None, project=None, host=None):
         self.name = name
         self.id = item_id
@@ -493,10 +513,6 @@ class ForgeItem(object):
             raise AttributeError(
                 "A 'app' attribute has not been defined in your Project"
             )
-        elif not project.app.hub_id:
-            raise AttributeError(
-                "A 'hub_id' attribute has not been defined in your ForgeApp"
-            )
         else:
             self._project = project
 
@@ -511,7 +527,7 @@ class ForgeItem(object):
         return inner
 
 
-class Folder(ForgeItem):
+class Folder(Content):
     def __init__(self, *args, **kwargs):
         """
         Args:
@@ -527,9 +543,14 @@ class Folder(ForgeItem):
         self.type = "folders"
         self.contents = []
 
-    @ForgeItem._validate_project
-    def get_contents(self, include_hidden=True):
+    def _iter_contents(self, level=0):
+        for content in self.contents:
+            yield content, level
+            if content.type == "folders":
+                content._iter_contents(level=level + 1)
 
+    @Content._validate_project
+    def get_contents(self, include_hidden=True):
         contents = self.project.app.api.dm.get_folder_contents(
             self.project.id["dm"],
             self.id,
@@ -540,12 +561,12 @@ class Folder(ForgeItem):
         for content in contents:
             if content["type"] == "items":
                 self.contents.append(
-                    File(
+                    Item(
                         content["attributes"]["displayName"],
                         content["id"],
                         data=content,
                         project=self.project,
-                        host=None,
+                        host=self,
                     )
                 )
             elif content["type"] == "folders":
@@ -555,24 +576,14 @@ class Folder(ForgeItem):
                         content["id"],
                         data=content,
                         project=self.project,
-                        host=None,
+                        host=self,
                     )
                 )
                 self.contents[-1].get_contents()
 
         return self.contents
 
-    def walk(self, level=0):
-        for content, level in self._walk_iter(level=level):
-            print("{}{}".format(" " * 4 * level, content.name))
-
-    def _walk_iter(self, level=0):
-        for content in self.contents:
-            yield content, level
-            if content.type == "folders":
-                content.walk(level=level + 1)
-
-    @ForgeItem._validate_project
+    @Content._validate_project
     def add_sub_folder(self, folder_name):
         """
         """
@@ -624,12 +635,45 @@ class Folder(ForgeItem):
             self.get_contents()
         return folder
 
-    @ForgeItem._validate_project
-    def add_item(self):
-        pass
+    @Content._validate_project
+    def _add_storage(self, name):
+        return self.project.app.api.dm.post_storage(
+            self.project.id["dm"], "folders", self.id, name
+        ).get("data")
+
+    @Content._validate_project
+    def _upload_file(self, storage_id, obj_bytes):
+        bucket_key, object_name = storage_id.split(":")[-1].split("/")
+        return self.project.app.api.dm.put_object(
+            bucket_key, object_name, obj_bytes
+        )
+
+    @Content._validate_project
+    def add_item(self, name, obj_bytes):
+        """
+        name include extension
+        """
+        storage = self._add_storage(name)
+        self._upload_file(storage["id"], obj_bytes)
+        item = self.project.app.api.dm.post_item(
+            self.project.id["dm"], self.id, storage["id"], name,
+        )
+
+        if item.get("data"):
+            return Item(
+                item["data"]["attributes"]["displayName"],
+                item["data"]["id"],
+                data=item,
+                project=self.project,
+                host=self,
+            )
+
+    def walk(self, level=0):
+        for content, level in self._iter_contents(level=level):
+            print("{}{}".format(" " * 4 * level, content.name))
 
 
-class File(ForgeItem):
+class Item(Content):
     def __init__(self, *args, **kwargs):
         """
         Args:
@@ -646,14 +690,61 @@ class File(ForgeItem):
         self.versions = []
         self.storage_id = None
 
-    @ForgeItem._validate_project
+    @Content._validate_project
+    def get_metadata(self):
+        self.metadata = self.project.app.api.dm.get_item(
+            self.project.id["dm"], self.id
+        )
+        self.storage_id = self.metadata["included"][0]["relationships"][
+            "storage"
+        ]["data"]["id"]
+        self.bucket_key, self.object_name = self.storage_id.split(":")[
+            -1
+        ].split("/")
+
+    @Content._validate_project
+    def add_version(self, name, obj_bytes):
+        """
+        name include extension
+        """
+        storage = self.host._add_storage(name)
+        self.host._upload_file(storage["id"], obj_bytes)
+
+        self.versions.append(
+            self.project.app.api.dm.post_item_version(
+                self.project.id["dm"], storage["id"], self.id, name,
+            )
+        )
+
+    @Content._validate_project
     def get_versions(self):
         pass
 
-    @ForgeItem._validate_project
-    def get_item(self):
-        pass
-
-    @ForgeItem._validate_project
+    @Content._validate_project
     def publish_latest(self):
         pass
+
+    @Content._validate_project
+    def download(self, save=False, location=None):
+        if not getattr(self, "metadata", None):
+            self.get_metadata()
+
+        self.project.app.logger.info("Downloading Item {}".format(self.name))
+        self.bytes = self.project.app.api.dm.get_object(
+            self.bucket_key, self.object_name
+        )
+        self.project.app.logger.info(
+            "Download Finished - file size: {} MB".format(
+                len(self.bytes) * 0.000001
+            )
+        )
+        if save and location and os.path.isdir(location):
+            self.filepath = os.path.join(location, self.name)
+            with open(self.filepath, "wb") as fp:
+                fp.write(self.bytes)
+            self.bytes = None
+
+    def load(self):
+        if getattr(self, "filepath", None):
+            with open(self.filepath, "rb") as fp:
+                self.bytes = fp.read()

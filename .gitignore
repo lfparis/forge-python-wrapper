@@ -6,12 +6,13 @@
 .pytest_cache
 .cache
 *.todo
+*.rvt
 
 build/
 dist/
 env/
 
-# examples/migrate.py
+examples/test.py
 tests/
 
 requirements.txt
