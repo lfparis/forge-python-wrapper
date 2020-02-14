@@ -45,7 +45,8 @@ project = app.find_project("<Project Id>", key="id")
 project.get_top_folders()
 top_folders = project.top_folders
 
-contents = project.get_folder_contents(pj.project_files.id)
+project.project_files.get_contents()
+contents = project.project_files.contents
 
 parent_folder_id = pj.project_files.id
 project.add_folder(pj.project_files.id, "New Folder Name")
@@ -72,7 +73,7 @@ new_project = app.add_project("New Project Name")
 
 new_project.update(name="Updated Project Name", status="active")
 
-new_project.get_project_roles
+new_project.get_roles()
 roles = new_project.roles
 role_id = roles[0]["id"]
 

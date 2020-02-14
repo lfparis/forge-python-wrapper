@@ -18,13 +18,8 @@ def main():
     )
 
     app_old_hub.get_projects()
-
     pj = app_old_hub.find_project("EMEA BIR 55 Colmore Row")
-
-    pj.get_top_folders()
-    pj.get_contents()
-    for folder in pj.top_folders:
-        print(folder.contents)
+    pj.walk()
 
     # pj = app_old_hub.find_project("EMEA LON 1 Poultry")
 

@@ -428,6 +428,14 @@ class Project(object):
         for folder in self.top_folders:
             folder.get_contents()
 
+    def walk(self):
+        if not getattr(self, "top_folders", None):
+            self.get_contents()
+
+        for folder in self.top_folders:
+            print(folder.name)
+            folder.walk(level=1)
+
     @_validate_app
     @_validate_bim360_hub
     def get_roles(self):
@@ -533,7 +541,7 @@ class Folder(ForgeItem):
             if content["type"] == "items":
                 self.contents.append(
                     File(
-                        content["attributes"]["name"],
+                        content["attributes"]["displayName"],
                         content["id"],
                         data=content,
                         project=self.project,
@@ -553,6 +561,16 @@ class Folder(ForgeItem):
                 self.contents[-1].get_contents()
 
         return self.contents
+
+    def walk(self, level=0):
+        for content, level in self._walk_iter(level=level):
+            print("{}{}".format(" " * 4 * level, content.name))
+
+    def _walk_iter(self, level=0):
+        for content in self.contents:
+            yield content, level
+            if content.type == "folders":
+                content.walk(level=level + 1)
 
     @ForgeItem._validate_project
     def add_sub_folder(self, folder_name):
