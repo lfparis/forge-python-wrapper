@@ -4,7 +4,7 @@ import os
 
 from .api import ForgeApi
 from .auth import ForgeAuth
-from .base import ForgeBase, ForgeItem, Logger
+from .base import ForgeBase, Logger
 
 logger = Logger(__name__)()
 
@@ -395,49 +395,42 @@ class Project(object):
                 folder["id"],
                 data=folder,
                 project=self,
-                host_id=None,
+                host=None,
             )
             for folder in self.app.api.dm.get_top_folders(
                 self.id["dm"], x_user_id=self.x_user_id
             ).get("data")
         ]
+
+        if self.top_folders:
+            if self.app.hub_type == ForgeBase.BIM_360_TYPES["a."]:
+                self.project_files = self.top_folders[0]
+                self.plans = None
+            elif self.app.hub_type == ForgeBase.BIM_360_TYPES["b."]:
+                folder_names = [folder.name for folder in self.top_folders]
+                self.project_files = (
+                    self.top_folders[folder_names.index("Project Files")]
+                    if "Project Files" in folder_names
+                    else None
+                )
+                self.plans = (
+                    self.top_folders[folder_names.index("Plans")]
+                    if "Plans" in folder_names
+                    else None
+                )
+
         return self.top_folders
 
     def get_contents(self):
-        # TODO: Make recursive
         if not getattr(self, "top_folders", None):
             self.get_top_folders()
 
         for folder in self.top_folders:
-            folder.contents = self.get_folder_contents(folder.id)
-
-    @_validate_app
-    def get_project_files_folder(self):
-        if not getattr(self, "top_folders", None):
-            self.get_top_folders()
-
-        if self.top_folders:
-            try:
-                folder_names = [folder.name for folder in self.top_folders]
-                if "Project Files" in folder_names:
-                    index = folder_names.index("Project Files")
-                    self.project_files_folder = self.top_folders[index]
-                    return self.project_files_folder
-            except Exception:
-                return
-
-    @_validate_app
-    def get_folder_contents(self, folder_id, include_hidden=False):
-        return self.app.api.dm.get_folder_contents(
-            self.id["dm"],
-            folder_id,
-            include_hidden=include_hidden,
-            x_user_id=self.x_user_id,
-        )
+            folder.get_contents()
 
     @_validate_app
     @_validate_bim360_hub
-    def get_project_roles(self):
+    def get_roles(self):
         self.roles = self.app.api.hq.get_project_roles(self.id["hq"])
         return self.roles
 
@@ -469,66 +462,180 @@ class Project(object):
             project_name=self.name,
         )
 
-    @_validate_app
-    def add_folder(self, parent_folder_id, folder_name):
-        """
-        """
-        parent_contents = self.get_folder_contents(
-            parent_folder_id, include_hidden=True
-        )
 
-        if parent_contents:
-            try:
-                sub_folder_names = [
-                    content["attributes"]["name"]
-                    for content in parent_contents
-                    if content["type"] == "folders"
-                ]
+class ForgeItem(object):
+    def __init__(self, name, item_id, data=None, project=None, host=None):
+        self.name = name
+        self.id = item_id
+        self.data = data
+        self.host = host
+        if project:
+            self.project = project
 
-                if folder_name not in sub_folder_names:
-                    return self.app.api.dm.post_folder(
-                        self.id["dm"],
-                        parent_folder_id,
-                        folder_name,
-                        project_name=self.name,
-                        x_user_id=self.x_user_id,
-                    )
+    @property
+    def project(self):
+        if getattr(self, "_project", None):
+            return self._project
 
-                else:
-                    index = sub_folder_names.index(folder_name)
-                    folder = parent_contents[index]
-                    if self.app.log:
-                        self.app.logger.warning(
-                            "{}: folder '{}' already exists".format(
-                                self.name, folder_name
-                            )
-                        )
-                    return folder
-            except Exception as e:
-                self.app.logger.warning(
-                    "{}: couldn't add '{}' folder".format(
-                        self.name, folder_name
-                    )
-                )
-                raise (e)
-        else:
-            return self.app.api.dm.post_folder(
-                self.id["dm"],
-                parent_folder_id,
-                folder_name,
-                project_name=self.name,
-                x_user_id=self.x_user_id,
+    @project.setter
+    def project(self, project):
+        if not isinstance(project, Project):
+            raise TypeError("Item.project must be a Project")
+        elif not project.app:
+            raise AttributeError(
+                "A 'app' attribute has not been defined in your Project"
             )
+        elif not project.app.hub_id:
+            raise AttributeError(
+                "A 'hub_id' attribute has not been defined in your ForgeApp"
+            )
+        else:
+            self._project = project
+
+    def _validate_project(func):
+        def inner(self, *args, **kwargs):
+            if not self.project:
+                raise AttributeError(
+                    "An 'project' attribute has not been defined."
+                )
+            return func(self, *args, **kwargs)
+
+        return inner
 
 
 class Folder(ForgeItem):
     def __init__(self, *args, **kwargs):
+        """
+        Args:
+            name (``str``): The name of the folder.
+            id (``str``): The id of the folder.
+
+        Kwargs:
+            data (``dict``): The data of the folder.
+            project (``Project``): The Project where this folder is.
+            host (``Folder``): The host folder.
+        """
         super().__init__(*args, **kwargs)
         self.type = "folders"
         self.contents = []
 
+    @ForgeItem._validate_project
+    def get_contents(self, include_hidden=True):
+
+        contents = self.project.app.api.dm.get_folder_contents(
+            self.project.id["dm"],
+            self.id,
+            include_hidden=include_hidden,
+            x_user_id=self.project.x_user_id,
+        )
+
+        for content in contents:
+            if content["type"] == "items":
+                self.contents.append(
+                    File(
+                        content["attributes"]["name"],
+                        content["id"],
+                        data=content,
+                        project=self.project,
+                        host=None,
+                    )
+                )
+            elif content["type"] == "folders":
+                self.contents.append(
+                    Folder(
+                        content["attributes"]["name"],
+                        content["id"],
+                        data=content,
+                        project=self.project,
+                        host=None,
+                    )
+                )
+                self.contents[-1].get_contents()
+
+        return self.contents
+
+    @ForgeItem._validate_project
+    def add_sub_folder(self, folder_name):
+        """
+        """
+        if not self.contents:
+            self.get_contents()
+
+        if self.contents:
+            try:
+                sub_folder_names = [
+                    content.name
+                    for content in self.contents
+                    if content.type == "folders"
+                ]
+
+                if folder_name not in sub_folder_names:
+                    folder = self.project.app.api.dm.post_folder(
+                        self.project.id["dm"],
+                        self.id,
+                        folder_name,
+                        project_name=self.project.name,
+                        x_user_id=self.project.x_user_id,
+                    )
+                    self.get_contents()
+
+                else:
+                    index = sub_folder_names.index(folder_name)
+                    folder = self.contents[index]
+                    if self.app.log:
+                        self.app.logger.warning(
+                            "{}: folder '{}' already exists in '{}'".format(
+                                self.project.name, folder_name, self.name
+                            )
+                        )
+            except Exception as e:
+                self.app.logger.warning(
+                    "{}: couldn't add '{}' folder to '{}'".format(
+                        self.name, folder_name, self.name
+                    )
+                )
+                raise (e)
+        else:
+            folder = self.app.api.dm.post_folder(
+                self.id["dm"],
+                self.id,
+                folder_name,
+                project_name=self.project.name,
+                x_user_id=self.project.x_user_id,
+            )
+            self.get_contents()
+        return folder
+
+    @ForgeItem._validate_project
+    def add_item(self):
+        pass
+
 
 class File(ForgeItem):
     def __init__(self, *args, **kwargs):
+        """
+        Args:
+            name (``str``): The name of the file including the file extension.
+            id (``str``): The id of the file.
+
+        Kwargs:
+            data (``dict``): The data of the file.
+            project (``Project``): The Project where this file is.
+            host (``Folder``): The host folder.
+        """
         super().__init__(*args, **kwargs)
         self.type = "items"
+        self.versions = []
+        self.storage_id = None
+
+    @ForgeItem._validate_project
+    def get_versions(self):
+        pass
+
+    @ForgeItem._validate_project
+    def get_item(self):
+        pass
+
+    @ForgeItem._validate_project
+    def publish_latest(self):
+        pass

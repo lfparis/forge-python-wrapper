@@ -27,36 +27,35 @@ If the following Environment Variables are defined there is no need to explicitl
 
 # 3-legged context - Needed to work with BIM 360 Team Hubs
 app = ForgeApp(
-    client_id="your_app_client_id",
-    client_secret="your_app_client_secret",
+    client_id="<your_app_client_id>",
+    client_secret="<your_app_client_secret>",
     three_legged=True,
-    redirect_uri="your_app_redirect_uri",
-    username="your_autodesk_username",
-    password="your_autodesk_password",
+    redirect_uri="<your_app_redirect_uri>",
+    username="<your_autodesk_username>",
+    password="<your_autodesk_password>",
 )
 
 app.get_hubs()
 app.hub_id = app.hubs[0]["id"]
 
 app.get_projects(source="docs")
-project = app.find_project("Project Name", key="name")
-project = app.find_project("4337130a-0533-4411-ae59-923819163d7a", key="id")
+project = app.find_project("<Project Name>", key="name")
+project = app.find_project("<Project Id>", key="id")
 
 project.get_top_folders()
-top_folder = project.top_folder
+top_folders = project.top_folders
 
-project.get_project_files_folder()
-contents = project.get_folder_contents(pj.project_files_folder["id"])
+contents = project.get_folder_contents(pj.project_files.id)
 
-parent_folder_id = pj.project_files_folder["id"]
-project.add_folder(parent_folder_id, "New Folder Name")
+parent_folder_id = pj.project_files.id
+project.add_folder(pj.project_files.id, "New Folder Name")
 
 
 # 2-legged context - Needed for methods that use the BIM 360 API
 app = ForgeApp(
-    client_id="your_app_client_id",
-    client_secret="your_app_client_secret",
-    hub_id="your_hub_id",
+    client_id="<your_app_client_id>",
+    client_secret="<your_app_client_secret>",
+    hub_id="<your_hub_id>",
 )
 
 app.get_companies()

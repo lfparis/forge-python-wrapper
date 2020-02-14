@@ -5,7 +5,6 @@ import urllib
 
 from datetime import date, timedelta
 
-from .forge import Project
 from .session import Session
 from .utils import Logger  # noqa:F401
 
@@ -106,29 +105,3 @@ class ForgeBase(object):
             self.account_id = val.split(".")[-1]
             if not self.hub_type:
                 raise ValueError("Invalid Hub ID")
-
-
-class ForgeItem:
-    def __init__(self, name, item_id, data=None, project=None, host_id=None):
-        self.name = name
-        self.id = item_id
-        self.data = data
-        self.host_id = host_id
-        if project:
-            self.project = project
-
-    @property
-    def project(self):
-        if getattr(self, "_project", None):
-            return self._project
-
-    @project.setter
-    def project(self, project):
-        if not isinstance(project, Project):
-            raise TypeError("Item.project must be a Project")
-        elif not project.app.hub_id:
-            raise AttributeError(
-                "A 'hub_id' attribute has not been defined in your app"
-            )
-        else:
-            self._project = project

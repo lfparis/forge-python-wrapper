@@ -22,99 +22,120 @@ def main():
     pj = app_old_hub.find_project("EMEA BIR 55 Colmore Row")
 
     pj.get_top_folders()
+    pj.get_contents()
+    for folder in pj.top_folders:
+        print(folder.contents)
 
-    parent_folder_id = pj.top_folders[0]["id"]
-    parent_contents = pj.get_folder_contents(parent_folder_id)
+    # pj = app_old_hub.find_project("EMEA LON 1 Poultry")
 
-    # TODO - Add Method  - Walk Project Folder Structure
-    for item in parent_contents:
-        print("Name: {}".format(item["id"]))
-        print("Id: {}".format(item["type"]))
-        print("Type: {}".format(item["attributes"]["displayName"]))
-        print("Hidden: {}".format(item["attributes"]["hidden"]))
-        print("\n")
+    # pj.get_top_folders()
+    # print(pj.project_files)
 
-    file_name = "Birmingham-55ColmoreRow-Project1-ExistingConditions_OLD.rvt"
+    # parent_folder_id = pj.top_folders[0]["id"]
+    # parent_contents = pj.get_folder_contents(parent_folder_id)
 
-    item_id = [
-        item
-        for item in parent_contents
-        if item["attributes"]["displayName"] == file_name
-    ][0]["id"]
+    # # TODO - Add Method  - Walk Project Folder Structure
+    # for item in parent_contents:
+    #     print("Name: {}".format(item["id"]))
+    #     print("Id: {}".format(item["type"]))
+    #     print("Type: {}".format(item["attributes"]["displayName"]))
+    #     print("Hidden: {}".format(item["attributes"]["hidden"]))
+    #     print("\n")
 
-    item = app_old_hub.api.dm.get_item(pj.id["dm"], item_id)
-    # pretty_print(item)
+    # file_name = "Birmingham-55ColmoreRow-Project1-ExistingConditions_OLD.rvt"
 
-    storage_id = item["included"][0]["relationships"]["storage"]["data"]["id"]
-    bucket_key, object_name = storage_id.split(":")[-1].split("/")
+    # item_id = [
+    #     item
+    #     for item in parent_contents
+    #     if item["attributes"]["displayName"] == file_name
+    # ][0]["id"]
 
-    app_old_hub.logger.info("Downloading File {}".format(file_name))
-    obj_bytes = app_old_hub.api.dm.get_object(bucket_key, object_name)
-    app_old_hub.logger.info(
-        "Download done - file size: {}".format(len(obj_bytes))
-    )
+    # item = app_old_hub.api.dm.get_item(pj.id["dm"], item_id)
+    # # pretty_print(item)
 
-    # filepath = "/Users/lparis2/repos/forge-python-wrapper/test.rvt"
-    # with open(filepath, "wb") as fp:
-    #     fp.write(obj_bytes)
+    # storage_id = item["included"][0]["relationships"]["storage"]["data"]["id"]
+    # bucket_key, object_name = storage_id.split(":")[-1].split("/")
 
-    # STEP 2 - Get original file
-    app_new_hub = ForgeApp(three_legged=True)
+    # app_old_hub.logger.info("Downloading File {}".format(file_name))
+    # obj_bytes = app_old_hub.api.dm.get_object(bucket_key, object_name)
+    # app_old_hub.logger.info(
+    #     "Download done - file size: {}".format(len(obj_bytes))
+    # )
 
-    app_new_hub.get_projects()
+    # # filepath = "/Users/lparis2/repos/forge-python-wrapper/test.rvt"
+    # # with open(filepath, "wb") as fp:
+    # #     fp.write(obj_bytes)
 
-    pj = app_new_hub.find_project("FPW TEST 4")
+    # # STEP 2 - Get original file
+    # app_new_hub = ForgeApp(three_legged=True)
 
-    pj.get_top_folders()
-    pj.get_project_files_folder()
+    # app_new_hub.get_projects()
 
-    parent_folder_id = pj.project_files_folder["id"]
+    # pj = app_new_hub.find_project("FPW TEST 4")
 
-    # add storage
-    storage = app_new_hub.api.dm.post_storage(
-        pj.id["dm"], "folders", parent_folder_id, file_name
-    )
+    # pj.get_top_folders()
+    # print(pj.project_files)
+    # print(pj.plans)
 
-    storage_id = storage["data"]["id"]
-    bucket_key, object_name = storage_id.split(":")[-1].split("/")
+    # pj = app_new_hub.find_project("EU GB LON The Hewett")
 
-    # filepath = "/Users/lparis2/repos/forge-python-wrapper/test.rvt"
-    # with open(filepath, "rb") as fp:
-    #     obj_bytes = fp.read()
+    # pj.get_top_folders()
+    # print(pj.project_files)
+    # print(pj.plans)
 
-    # upload object
-    data = app_new_hub.api.dm.put_object(bucket_key, object_name, obj_bytes)
-    pretty_print(data)
+    # for folder in pj.top_folders:
+    #     print(folder.name)
+    #     print(folder.id)
+    #     pretty_print(folder.data)
+    #     print(folder.project.name)
 
-    file_name = "ASDAS.rvt"
+    # parent_folder_id = pj.project_files_folder["id"]
 
-    # add item
-    data = app_new_hub.api.dm.post_item(
-        pj.id["dm"], parent_folder_id, storage_id, file_name,
-    )
-    pretty_print(data)
-    item_id = data["data"]["id"]
+    # # add storage
+    # storage = app_new_hub.api.dm.post_storage(
+    #     pj.id["dm"], "folders", parent_folder_id, file_name
+    # )
 
-    print("I'm only sleeping")
-    time.sleep(15)
+    # storage_id = storage["data"]["id"]
+    # bucket_key, object_name = storage_id.split(":")[-1].split("/")
 
-    file_name = "AGATA.rvt"
+    # # filepath = "/Users/lparis2/repos/forge-python-wrapper/test.rvt"
+    # # with open(filepath, "rb") as fp:
+    # #     obj_bytes = fp.read()
 
-    # add storage
-    storage = app_new_hub.api.dm.post_storage(
-        pj.id["dm"], "folders", parent_folder_id, file_name
-    )
+    # # upload object
+    # data = app_new_hub.api.dm.put_object(bucket_key, object_name, obj_bytes)
+    # pretty_print(data)
 
-    storage_id = storage["data"]["id"]
-    bucket_key, object_name = storage_id.split(":")[-1].split("/")
+    # file_name = "ASDAS.rvt"
 
-    data = app_new_hub.api.dm.put_object(bucket_key, object_name, obj_bytes)
+    # # add item
+    # data = app_new_hub.api.dm.post_item(
+    #     pj.id["dm"], parent_folder_id, storage_id, file_name,
+    # )
+    # pretty_print(data)
+    # item_id = data["data"]["id"]
 
-    # add version
-    data = app_new_hub.api.dm.post_item_version(
-        pj.id["dm"], storage_id, item_id, file_name,
-    )
-    pretty_print(data)
+    # print("I'm only sleeping")
+    # time.sleep(15)
+
+    # file_name = "AGATA.rvt"
+
+    # # add storage
+    # storage = app_new_hub.api.dm.post_storage(
+    #     pj.id["dm"], "folders", parent_folder_id, file_name
+    # )
+
+    # storage_id = storage["data"]["id"]
+    # bucket_key, object_name = storage_id.split(":")[-1].split("/")
+
+    # data = app_new_hub.api.dm.put_object(bucket_key, object_name, obj_bytes)
+
+    # # add version
+    # data = app_new_hub.api.dm.post_item_version(
+    #     pj.id["dm"], storage_id, item_id, file_name,
+    # )
+    # pretty_print(data)
 
 
 if __name__ == "__main__":
