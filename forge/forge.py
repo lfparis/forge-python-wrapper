@@ -730,9 +730,15 @@ class Item(Content):
 
     @Content._validate_project
     def get_versions(self):
-        self.versions = self.project.app.api.dm.get_item_versions(
-            self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
-        )
+        self.versions = {
+            version["attributes"]["versionNumber"]: version
+            for version in self.project.app.api.dm.get_item_versions(
+                self.project.id["dm"],
+                self.id,
+                x_user_id=self.project.x_user_id,
+            )
+            if version["type"] == "versions"
+        }
         return self.versions
 
     @Content._validate_project
