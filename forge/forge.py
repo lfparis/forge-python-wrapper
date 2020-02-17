@@ -676,6 +676,35 @@ class Folder(Content):
                 host=self,
             )
 
+    @Content._validate_project
+    def copy_item(self, original_item):
+        """
+        name include extension
+        """
+        original_item.get_versions()
+        storage = self._add_storage(original_item.name)
+        item = self.project.app.api.dm.post_item(
+            self.project.id["dm"],
+            self.id,
+            storage["id"],
+            original_item.name,
+            x_user_id=self.project.x_user_id,
+            copy_from_id=original_item.versions[len(original_item.versions)][
+                "id"
+            ],
+        )
+
+        if item.get("data"):
+            return Item(
+                item["data"]["attributes"]["displayName"],
+                item["data"]["id"],
+                data=item,
+                project=self.project,
+                host=self,
+            )
+        else:
+            return item
+
     def walk(self, level=0):
         for content, level in self._iter_contents(level=level):
             print("{}{}".format(" " * 4 * level, content.name))
