@@ -139,7 +139,7 @@ class ForgeAuth(ForgeBase):
                 executable_path=chrome_driver_path,
                 chrome_options=chrome_options,
             )
-            driver.implicitly_wait(5)
+            driver.implicitly_wait(15)
             driver.get(url)
 
             user_name = driver.find_element_by_id("userName")
@@ -152,7 +152,7 @@ class ForgeAuth(ForgeBase):
             submit_btn = driver.find_element_by_id("btnSubmit")
             submit_btn.click()
 
-            allow_btn = driver.find_element_by_link_text("Allow")
+            allow_btn = driver.find_element_by_id("allow_btn")
             allow_btn.click()
 
             return_url = driver.current_url
