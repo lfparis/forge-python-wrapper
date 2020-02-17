@@ -736,7 +736,7 @@ class Item(Content):
         return self.versions
 
     @Content._validate_project
-    def publish_latest(self):
+    def publish(self):
         publish_status = self.project.app.api.dm.get_publish_model_job(
             self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
         )
