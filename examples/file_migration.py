@@ -8,7 +8,7 @@ def main():
     app_hub_1.get_projects()
     pj = app_hub_1.find_project("<Project Name>")
 
-    file_name = "<A File Name.extension>"
+    file_name = "<filename.extension>"
     item = pj.find(file_name)
     item.download()
 
