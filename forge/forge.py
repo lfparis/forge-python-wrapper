@@ -638,7 +638,11 @@ class Folder(Content):
     @Content._validate_project
     def _add_storage(self, name):
         return self.project.app.api.dm.post_storage(
-            self.project.id["dm"], "folders", self.id, name
+            self.project.id["dm"],
+            "folders",
+            self.id,
+            name,
+            x_user_id=self.project.x_user_id,
         ).get("data")
 
     @Content._validate_project
@@ -656,7 +660,11 @@ class Folder(Content):
         storage = self._add_storage(name)
         self._upload_file(storage["id"], obj_bytes)
         item = self.project.app.api.dm.post_item(
-            self.project.id["dm"], self.id, storage["id"], name,
+            self.project.id["dm"],
+            self.id,
+            storage["id"],
+            name,
+            x_user_id=self.project.x_user_id,
         )
 
         if item.get("data"):
@@ -693,7 +701,7 @@ class Item(Content):
     @Content._validate_project
     def get_metadata(self):
         self.metadata = self.project.app.api.dm.get_item(
-            self.project.id["dm"], self.id
+            self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
         )
         self.storage_id = self.metadata["included"][0]["relationships"][
             "storage"
@@ -712,17 +720,43 @@ class Item(Content):
 
         self.versions.append(
             self.project.app.api.dm.post_item_version(
-                self.project.id["dm"], storage["id"], self.id, name,
+                self.project.id["dm"],
+                storage["id"],
+                self.id,
+                name,
+                x_user_id=self.project.x_user_id,
             )
         )
 
     @Content._validate_project
     def get_versions(self):
-        pass
+        self.versions = self.project.app.api.dm.get_item_versions(
+            self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
+        )
+        return self.versions
 
     @Content._validate_project
     def publish_latest(self):
-        pass
+        publish_status = self.project.app.api.dm.get_publish_model_job(
+            self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
+        )
+        if not publish_status.get("errors") and not publish_status.get("data"):
+            publish_job = self.project.app.api.dm.publish_model(
+                self.project.id["dm"],
+                self.id,
+                x_user_id=self.project.x_user_id,
+            )
+            status = publish_job["data"]["attributes"]["status"]
+            self.project.app.logger.info(
+                "Published model. Status is '{}'".format(status)
+            )
+        else:
+            status = publish_status["data"]["attributes"]["status"]
+            self.project.app.logger.info(
+                "Model did not need to be published. Latest version status is '{}'".format(  # noqa:E501
+                    status
+                )
+            )
 
     @Content._validate_project
     def download(self, save=False, location=None):
