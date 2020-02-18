@@ -359,7 +359,7 @@ class Project(object):
         """ """
         if not (isinstance(x_user_id, str)):
             raise TypeError("x_user_id must be a string")
-        elif not (len(x_user_id) == 12 and x_user_id[0] == "U"):
+        elif not len(x_user_id) == 12:
             raise ValueError("x_user_id must be a user UID")
         else:
             self._x_user_id = x_user_id
