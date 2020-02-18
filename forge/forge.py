@@ -389,6 +389,12 @@ class Project(object):
 
     @_validate_app
     def get_top_folders(self):
+        data = (
+            self.app.api.dm.get_top_folders(
+                self.id["dm"], x_user_id=self.x_user_id
+            ).get("data")
+            or []
+        )
         self.top_folders = [
             Folder(
                 folder["attributes"]["name"],
@@ -397,9 +403,7 @@ class Project(object):
                 project=self,
                 host=None,
             )
-            for folder in self.app.api.dm.get_top_folders(
-                self.id["dm"], x_user_id=self.x_user_id
-            ).get("data")
+            for folder in data
         ]
 
         if self.top_folders:
