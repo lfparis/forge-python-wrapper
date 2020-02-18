@@ -611,21 +611,21 @@ class Folder(Content):
                 else:
                     index = sub_folder_names.index(folder_name)
                     folder = self.contents[index]
-                    if self.app.log:
-                        self.app.logger.warning(
+                    if self.project.app.log:
+                        self.project.app.logger.warning(
                             "{}: folder '{}' already exists in '{}'".format(
                                 self.project.name, folder_name, self.name
                             )
                         )
             except Exception as e:
-                self.app.logger.warning(
+                self.project.app.logger.warning(
                     "{}: couldn't add '{}' folder to '{}'".format(
                         self.name, folder_name, self.name
                     )
                 )
                 raise (e)
         else:
-            folder = self.app.api.dm.post_folder(
+            folder = self.project.app.api.dm.post_folder(
                 self.id["dm"],
                 self.id,
                 folder_name,
