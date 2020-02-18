@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 import json
+import sys
 
 try:
     import requests
@@ -17,12 +18,12 @@ try:
         ServicePointManager,
         WebRequest,
     )
-    from System.IO import File, IOException, StreamReader
+    from System.IO import File, StreamReader
     from System.Text.Encoding import UTF8
 
     ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
 except ImportError:
-    IOException = Exception
+    pass
 
 
 from ..utils import Logger  # noqa: E402
@@ -99,37 +100,16 @@ class Session(object):
             "Failed to {} {}: {}".format(method, message, error_msg)
         )
 
-    def request(  # noqa
-        self,
-        method,
-        url,
-        headers=None,
-        params=None,
-        json_data=None,
-        byte_data=None,
-        urlencode=None,
-        filepath=None,
-        timeout=2,
-        message="",
-    ):
-        """
-        Request wrapper for cpython and ironpython.
-        Args:
-            method (``str``): api method.
-            url (``str``): uri for API call.
-        Kwargs:
-            headers (``dict``, optional): dictionary of request headers.
-            params (``dict``, optional): dictionary of request uri parameters.
-            json_data (``json``, optional): request body if Content-Type is json.
-            urlencode (``dict``, optional): request body if Content-Type is urlencoded.
-            filepath (``str``, optional): filepath of object to upload.
-            timeout (``int``, optional): maximum time for one request in minutes.
-            message (``str``, optional): filepath of object to upload.
-        Returns:
-            data (``json``): Body of response.
-            success (``bool``): True if response returned a accepted, created or ok status code.
-        """  # noqa
-        # try requests lib
+    def _request_cpython(self, *args, **kwargs):
+        method, url = args
+        headers = kwargs.get("headers")
+        params = kwargs.get("params")
+        json_data = kwargs.get("json_data")
+        byte_data = kwargs.get("byte_data")
+        urlencode = kwargs.get("urlencode")
+        filepath = kwargs.get("filepath")
+        message = kwargs.get("message")
+
         try:
             s = requests.Session()
 
@@ -155,7 +135,6 @@ class Session(object):
             # if response is a json object
             try:
                 data = r.json()
-
             # else if raw data
             except json.decoder.JSONDecodeError:
                 data = r.content
@@ -165,11 +144,27 @@ class Session(object):
                 requests.codes.created,
                 requests.codes.accepted,
             )
+
             if not success:
                 self._log_error(method, message, r)
 
-        # else use System.Net
-        except (IOException, UnicodeDecodeError):
+        except Exception as e:
+            raise e
+
+        return data, success
+
+    def _request_ironython(self, *args, **kwargs):
+        method, url = args
+        headers = kwargs.get("headers")
+        params = kwargs.get("params")
+        json_data = kwargs.get("json_data")
+        byte_data = kwargs.get("byte_data")
+        urlencode = kwargs.get("urlencode")
+        filepath = kwargs.get("filepath")
+        timeout = kwargs.get("timeout")
+        # message = kwargs.get("message")
+
+        try:
             # prepare params
             if params:
                 url = self._add_url_params(url, params)
@@ -223,6 +218,69 @@ class Session(object):
                 return None, None
             finally:
                 web_request.Abort()
+
+        except Exception as e:
+            raise e
+
+        return data, success
+
+    def request(  # noqa
+        self,
+        method,
+        url,
+        headers=None,
+        params=None,
+        json_data=None,
+        byte_data=None,
+        urlencode=None,
+        filepath=None,
+        timeout=2,
+        message="",
+    ):
+        """
+        Request wrapper for cpython and ironpython.
+        Args:
+            method (``str``): api method.
+            url (``str``): uri for API call.
+        Kwargs:
+            headers (``dict``, optional): dictionary of request headers.
+            params (``dict``, optional): dictionary of request uri parameters.
+            json_data (``json``, optional): request body if Content-Type is json.
+            urlencode (``dict``, optional): request body if Content-Type is urlencoded.
+            filepath (``str``, optional): filepath of object to upload.
+            timeout (``int``, optional): maximum time for one request in minutes.
+            message (``str``, optional): filepath of object to upload.
+        Returns:
+            data (``json``): Body of response.
+            success (``bool``): True if response returned a accepted, created or ok status code.
+        """  # noqa
+        if sys.implementation.name == "ironpython":
+            data, success = self._request_ironpython(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json_data=json_data,
+                byte_data=byte_data,
+                urlencode=urlencode,
+                filepath=filepath,
+                timeout=timeout,
+                message=message,
+            )
+        else:  # if sys.implementation.name == "cpython"
+            data, success = self._request_cpython(
+                method,
+                url,
+                headers=headers,
+                params=params,
+                json_data=json_data,
+                byte_data=byte_data,
+                urlencode=urlencode,
+                filepath=filepath,
+                timeout=timeout,
+                message=message,
+            )
+
         return data, success
 
 
