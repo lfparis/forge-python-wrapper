@@ -654,7 +654,7 @@ class Folder(Content):
                 raise (e)
         else:
             folder = self.project.app.api.dm.post_folder(
-                self.id["dm"],
+                self.project.id["dm"],
                 self.id,
                 folder_name,
                 project_name=self.project.name,
