@@ -876,8 +876,8 @@ class Item(Content):
             self.bucket_key, self.object_name
         )
         self.project.app.logger.info(
-            "Download Finished - file size: {} MB".format(
-                len(self.bytes) * 0.000001
+            "Download Finished - file size: {0:0.1f} MB".format(
+                len(self.bytes) / 1048 / 1000
             )
         )
         if save and location and os.path.isdir(location):
