@@ -30,12 +30,14 @@ class ForgeBase(object):
             "items": "items:{}:File".format(BIM_360_TYPES["a."]),
             "folders": "folders:{}:Folder".format(BIM_360_TYPES["a."]),
             "versions": "versions:{}:File".format(BIM_360_TYPES["a."]),
+            "deleted": "versions:{}:Deleted".format(BIM_360_TYPES["a."]),
         },
         BIM_360_TYPES["b."]: {
             "hubs": "hubs:{}:Account".format(BIM_360_TYPES["b."]),
             "items": "items:{}:File".format(BIM_360_TYPES["b."]),
             "folders": "folders:{}:Folder".format(BIM_360_TYPES["b."]),
             "versions": "versions:{}:File".format(BIM_360_TYPES["b."]),
+            "deleted": "versions:{}:Deleted".format(BIM_360_TYPES["b."]),
             "commands": {
                 "get_publish_model_job": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
                     BIM_360_TYPES["b."]
