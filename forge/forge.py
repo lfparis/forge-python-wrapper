@@ -551,7 +551,10 @@ class Folder(Content):
         for content in self.contents:
             yield content, level
             if content.type == "folders":
-                content._iter_contents(level=level + 1)
+                for sub_content, sub_level in content._iter_contents(
+                    level=level + 1
+                ):
+                    yield sub_content, sub_level
 
     @Content._validate_project
     def get_contents(self, include_hidden=True):
