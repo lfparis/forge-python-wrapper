@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 import os
+import time
 
 from .api import ForgeApi
 from .auth import ForgeAuth
@@ -398,12 +399,23 @@ class Project(object):
 
     @_validate_app
     def get_top_folders(self):
-        data = (
-            self.app.api.dm.get_top_folders(
-                self.id["dm"], x_user_id=self.x_user_id
-            ).get("data")
-            or []
-        )
+        data = []
+        count = 0
+        while not data:
+            if count > 0:
+                time.sleep(5)
+
+            data = (
+                self.app.api.dm.get_top_folders(
+                    self.id["dm"], x_user_id=self.x_user_id
+                ).get("data")
+                or []
+            )
+
+            count += 1
+            if count > 6:
+                break
+
         self.top_folders = [
             Folder(
                 folder["attributes"]["name"],
