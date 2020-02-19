@@ -270,7 +270,15 @@ class ForgeApp(ForgeBase):
 
 
 class Project(object):
-    def __init__(self, name, project_id, app=None, data=None, x_user_id=None):
+    def __init__(
+        self,
+        name,
+        project_id,
+        app=None,
+        data=None,
+        x_user_id=None,
+        include_hidden=False,
+    ):
         self.name = name
         self.id = {"hq": project_id}
         if app:
@@ -482,7 +490,7 @@ class Project(object):
                     if getattr(content, key, None) == value:
                         return content
 
-        return self.app.logger.warning(
+        self.app.logger.warning(
             "{}: {} not found in '{}'".format(key, value, self.name)
         )
 
@@ -557,11 +565,11 @@ class Folder(Content):
                     yield sub_content, sub_level
 
     @Content._validate_project
-    def get_contents(self, include_hidden=True):
+    def get_contents(self):
         contents = self.project.app.api.dm.get_folder_contents(
             self.project.id["dm"],
             self.id,
-            include_hidden=include_hidden,
+            include_hidden=self.project.include_hidden,
             x_user_id=self.project.x_user_id,
         )
 
@@ -712,7 +720,28 @@ class Folder(Content):
         else:
             return item
 
+    def find(self, value, key="name"):
+        """key = name or id"""
+        if key.lower() not in ("name", "id"):
+            raise ValueError()
+
+        if not self.contents:
+            self.get_contents()
+
+        for content, level in self._iter_contents():
+            if level != 0:
+                continue
+            if getattr(content, key, None) == value:
+                return content
+
+        self.project.app.logger.warning(
+            "{}: {} not found in '{}'".format(key, value, self.name)
+        )
+
     def walk(self, level=0):
+        if not self.contents:
+            self.get_contents()
+
         for content, level in self._iter_contents(level=level):
             print("{}{}".format(" " * 4 * level, content.name))
 
@@ -739,12 +768,25 @@ class Item(Content):
         self.metadata = self.project.app.api.dm.get_item(
             self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
         )
-        self.storage_id = self.metadata["included"][0]["relationships"][
-            "storage"
-        ]["data"]["id"]
-        self.bucket_key, self.object_name = self.storage_id.split(":")[
-            -1
-        ].split("/")
+
+        self.hidden = self.metadata["data"]["attributes"]["hidden"]
+        self.deleted = self.metadata["included"][0]["attributes"]["extension"][
+            "type"
+        ] in (
+            ForgeApp.TYPES[ForgeApp.BIM_360_TYPES["a."]]["deleted"],
+            ForgeApp.TYPES[ForgeApp.BIM_360_TYPES["b."]]["deleted"],
+        )
+
+        try:
+            self.storage_id = self.metadata["included"][0]["relationships"][
+                "storage"
+            ]["data"]["id"]
+            self.bucket_key, self.object_name = self.storage_id.split(":")[
+                -1
+            ].split("/")
+        except KeyError:
+            # no storage key
+            pass
 
     @Content._validate_project
     def add_version(self, name, obj_bytes):
@@ -804,6 +846,15 @@ class Item(Content):
     def download(self, save=False, location=None):
         if not getattr(self, "metadata", None):
             self.get_metadata()
+
+        if not getattr(self, "storage_id", None):
+            self.project.app.logger.info(
+                "File '{}': No data to download. Hidden: {}, Deleted: {}".format(  # noqa:E501
+                    self.name, self.hidden, self.deleted
+                )
+            )
+            self.bytes = None
+            return
 
         self.project.app.logger.info("Downloading Item {}".format(self.name))
         self.bytes = self.project.app.api.dm.get_object(
