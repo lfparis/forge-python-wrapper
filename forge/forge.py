@@ -287,6 +287,7 @@ class Project(object):
             self.data = data
         if x_user_id:
             self.x_user_id = x_user_id
+        self.include_hidden = include_hidden
 
     def __repr__(self):
         return "<Project - Name: {} - ID: {} at {}>".format(
