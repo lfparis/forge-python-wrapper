@@ -47,18 +47,22 @@ class HQ(ForgeBase):
 
     # HQ V1
 
+    @ForgeBase._validate_token
     def get_users(self):
         url = "{}/accounts/{}/users".format(HQ_V1_URL, self.account_id)
         return self._get_iter(url, "users", headers=self.auth.header)
 
+    @ForgeBase._validate_token
     def get_projects(self):
         url = "{}/accounts/{}/projects".format(HQ_V1_URL, self.account_id)
         return self._get_iter(url, "projects", headers=self.auth.header)
 
+    @ForgeBase._validate_token
     def get_companies(self):
         url = "{}/accounts/{}/companies".format(HQ_V1_URL, self.account_id)
         return self._get_iter(url, "companies", headers=self.auth.header)
 
+    @ForgeBase._validate_token
     def post_project(
         self,
         name,
@@ -103,6 +107,7 @@ class HQ(ForgeBase):
             if self.log:
                 self.logger.warning("Failed to add: {}".format(name))
 
+    @ForgeBase._validate_token
     def patch_project(
         self, project_id, name=None, status=None, project_name=None
     ):
@@ -139,6 +144,7 @@ class HQ(ForgeBase):
 
     # HQ V2
 
+    @ForgeBase._validate_token
     def get_project_roles(self, project_id):
         url = "{}/accounts/{}/projects/{}/industry_roles".format(
             HQ_V2_URL, self.account_id, project_id
@@ -153,6 +159,7 @@ class HQ(ForgeBase):
         )
         return data
 
+    @ForgeBase._validate_token
     def post_project_users(
         self,
         project_id,
@@ -245,6 +252,7 @@ class HQ(ForgeBase):
         if success:
             return data
 
+    @ForgeBase._validate_token
     def patch_project_user(
         self,
         project_id,

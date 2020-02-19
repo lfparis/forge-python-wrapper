@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import re
 import urllib
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from .session import Session
 from .utils import Logger  # noqa:F401
@@ -88,6 +88,17 @@ class ForgeBase(object):
             params[field] = value
 
         return params
+
+    def _validate_token(func):
+        def inner(self, *args, **kwargs):
+            now = datetime.now()
+            timedelta = int((now - self.auth.timestamp).total_seconds()) + 1
+            if timedelta >= self.auth.expires_in:
+                self.auth.timestamp = now
+                self.auth.refresh()
+            return func(self, *args, **kwargs)
+
+        return inner
 
     @property
     def hub_id(self):

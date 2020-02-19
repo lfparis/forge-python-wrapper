@@ -41,12 +41,14 @@ class DM(ForgeBase):
 
     # PROJECT_V1
 
+    @ForgeBase._validate_token
     def get_hubs(self, x_user_id=None):
         url = "{}/hubs".format(PROJECT_V1_URL)
         headers = self._set_headers(x_user_id)
         data, _ = self.session.request("get", url, headers=headers)
         return data
 
+    @ForgeBase._validate_token
     def get_project(self, project_id, x_user_id=None):
         url = "{}/hubs/{}/projects/{}".format(
             PROJECT_V1_URL, self.hub_id, project_id
@@ -55,6 +57,7 @@ class DM(ForgeBase):
         data, _ = self.session.request("get", url, headers=headers)
         return data
 
+    @ForgeBase._validate_token
     def get_projects(self, x_user_id=None):
         url = "{}/hubs/{}/projects".format(PROJECT_V1_URL, self.hub_id)
         projects = self._get_iter(url, x_user_id=x_user_id)
@@ -67,6 +70,7 @@ class DM(ForgeBase):
 
         return projects
 
+    @ForgeBase._validate_token
     def get_top_folders(self, project_id, x_user_id=None):
         url = "{}/hubs/{}/projects/{}/topFolders".format(
             PROJECT_V1_URL, self.hub_id, project_id
@@ -82,6 +86,7 @@ class DM(ForgeBase):
 
     # DATA_V1
 
+    @ForgeBase._validate_token
     def get_folder(self, project_id, folder_id, x_user_id=None):
         url = "{}/projects/{}/folders/{}".format(
             DATA_V1_URL, project_id, folder_id
@@ -90,6 +95,7 @@ class DM(ForgeBase):
         data, _ = self.session.request("get", url, headers=headers)
         return data
 
+    @ForgeBase._validate_token
     def get_folder_contents(
         self, project_id, folder_id, include_hidden=False, x_user_id=None
     ):
@@ -109,6 +115,7 @@ class DM(ForgeBase):
 
         return contents
 
+    @ForgeBase._validate_token
     def get_item(self, project_id, item_id, x_user_id=None):
         url = "{}/projects/{}/items/{}".format(
             DATA_V1_URL, project_id, item_id
@@ -117,6 +124,7 @@ class DM(ForgeBase):
         data, _ = self.session.request("get", url, headers=headers)
         return data
 
+    @ForgeBase._validate_token
     def get_item_versions(self, project_id, item_id, x_user_id=None):
         url = "{}/projects/{}/items/{}/versions".format(
             DATA_V1_URL, project_id, item_id
@@ -131,6 +139,7 @@ class DM(ForgeBase):
 
         return versions
 
+    @ForgeBase._validate_token
     def post_item(
         self,
         project_id,
@@ -197,6 +206,7 @@ class DM(ForgeBase):
         )
         return data
 
+    @ForgeBase._validate_token
     def post_item_version(
         self,
         project_id,
@@ -241,6 +251,7 @@ class DM(ForgeBase):
         )
         return data
 
+    @ForgeBase._validate_token
     def post_storage(
         self, project_id, host_type, host_id, name, x_user_id=None,
     ):
@@ -268,6 +279,7 @@ class DM(ForgeBase):
         )
         return data
 
+    @ForgeBase._validate_token
     def post_folder(
         self,
         project_id,
@@ -317,6 +329,7 @@ class DM(ForgeBase):
 
     # DATA_V1 - COMMANDS
 
+    @ForgeBase._validate_token
     def _commands(self, project_id, json_data, x_user_id=None):
         url = "{}/projects/{}/commands".format(DATA_V1_URL, project_id)
         headers = self._set_headers(x_user_id)
@@ -326,6 +339,7 @@ class DM(ForgeBase):
         )
         return data
 
+    @ForgeBase._validate_token
     def _commands_publish(self, project_id, item_id, command, x_user_id=None):
         json_data = {
             "jsonapi": {"version": "1.0"},
@@ -341,6 +355,7 @@ class DM(ForgeBase):
         }
         return self._commands(project_id, json_data, x_user_id=x_user_id)
 
+    @ForgeBase._validate_token
     def get_publish_model_job(
         self, project_id, item_id, x_user_id=None,
     ):
@@ -349,6 +364,7 @@ class DM(ForgeBase):
             project_id, item_id, command, x_user_id=x_user_id
         )
 
+    @ForgeBase._validate_token
     def publish_model(
         self, project_id, item_id, x_user_id=None,
     ):
@@ -359,6 +375,7 @@ class DM(ForgeBase):
 
     # OSS V2
 
+    @ForgeBase._validate_token
     def get_object(self, bucket_key, object_name):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name
@@ -366,6 +383,7 @@ class DM(ForgeBase):
         data, _ = self.session.request("get", url, headers=self.auth.header)
         return data
 
+    @ForgeBase._validate_token
     def put_object(self, bucket_key, object_name, object_bytes):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name

@@ -4,6 +4,7 @@ import os
 import platform
 import sys
 
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
@@ -43,6 +44,8 @@ class ForgeAuth(ForgeBase):
             password (``string``, default=None): (Not needed for 2-Legged Context) Password credential to an Autodesk Account. If not provided, it will attempt to look for the 'FORGE_PASSWORD' environment variable.
             log (``bool``, default=True): If True it logs succesful API calls to logger.
         """  # noqa:E501
+        self.timestamp = datetime.now()
+
         self.log = log
         self.logger = logger
         self.client_id = client_id or os.environ.get("FORGE_CLIENT_ID")
