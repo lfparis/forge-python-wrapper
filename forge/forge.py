@@ -3,6 +3,8 @@ from __future__ import absolute_import
 import os
 import time
 
+from tqdm import tqdm
+
 from .api import ForgeApi
 from .auth import ForgeAuth
 from .base import ForgeBase, Logger
@@ -885,6 +887,80 @@ class Item(Content):
             with open(self.filepath, "wb") as fp:
                 fp.write(self.bytes)
             self.bytes = None
+
+    @Content._validate_project
+    def transfer(self, target_host, chunk_size=3000000):
+        if not getattr(self, "metadata", None):
+            self.get_metadata()
+
+        if not getattr(self, "storage_id", None):
+            self.project.app.logger.info(
+                "File '{}': No data to download. Hidden: {}, Deleted: {}".format(  # noqa:E501
+                    self.name, self.hidden, self.deleted
+                )
+            )
+            self.bytes = None
+            return
+
+        if not target_host.project:
+            raise AttributeError(
+                "A 'project' attribute has not been defined on the target_host"
+            )
+
+        details = self.project.app.api.dm.get_object_details(
+            self.bucket_key, self.object_name
+        )
+        total_size = details.get("size")
+        storage = target_host._add_storage(self.name)
+        tg_bucket_key, tg_object_name = storage["id"].split(":")[-1].split("/")
+
+        self.project.app.logger.info(
+            "Beginning transfer of: '{}'".format(self.name)
+        )
+
+        pbar = tqdm(
+            total=total_size,
+            unit="iB",
+            unit_scale=True,
+            desc="Transferring - {}".format(self.name),
+        )
+
+        data_left = total_size
+        count = 0
+        while data_left > 0:
+            lower = count * chunk_size
+            upper = lower + chunk_size
+            if upper > total_size:
+                upper = total_size
+            upper -= 1
+
+            chunk = self.project.app.api.dm.get_object(
+                self.bucket_key, self.object_name, byte_range=(lower, upper),
+            )
+
+            target_host.project.app.api.dm.put_object_resumable(
+                tg_bucket_key,
+                tg_object_name,
+                chunk,
+                total_size,
+                (lower, upper),
+            )
+
+            pbar.update(chunk_size)
+            data_left -= chunk_size
+            count += 1
+
+        pbar.close()
+        target_host.project.app.api.dm.post_item(
+            target_host.project.id["dm"],
+            target_host.id,
+            storage["id"],
+            self.name,
+            x_user_id=target_host.project.x_user_id,
+        )
+        self.project.app.logger.info(
+            "Finished transfer of: '{}'".format(self.name)
+        )
 
     def load(self):
         if getattr(self, "filepath", None):
