@@ -376,11 +376,22 @@ class DM(ForgeBase):
     # OSS V2
 
     @ForgeBase._validate_token
-    def get_object(self, bucket_key, object_name):
-        url = "{}/buckets/{}/objects/{}".format(
+    def get_object_details(self, bucket_key, object_name):
+        url = "{}/buckets/{}/objects/{}/details".format(
             OSS_V2_URL, bucket_key, object_name
         )
         data, _ = self.session.request("get", url, headers=self.auth.header)
+        return data
+
+    @ForgeBase._validate_token
+    def get_object(self, bucket_key, object_name, byte_range=None):
+        url = "{}/buckets/{}/objects/{}".format(
+            OSS_V2_URL, bucket_key, object_name
+        )
+        headers = self.auth.header
+        if byte_range:
+            headers.update({"Range": "bytes={}-{}".format(*byte_range)})
+        data, _ = self.session.request("get", url, headers=headers)
         return data
 
     @ForgeBase._validate_token
@@ -390,5 +401,23 @@ class DM(ForgeBase):
         )
         data, _ = self.session.request(
             "put", url, headers=self.auth.header, byte_data=object_bytes,
+        )
+        return data
+
+    @ForgeBase._validate_token
+    def put_object_resumable(
+        self, bucket_key, object_name, object_bytes, total_size, byte_range
+    ):
+        url = "{}/buckets/{}/objects/{}/resumable".format(
+            OSS_V2_URL, bucket_key, object_name
+        )
+        headers = {
+            "Content-Length": str(total_size),
+            "Session-Id": "-811577637",
+            "Content-Range": "bytes {}-{}/{}".format(*byte_range, total_size),
+        }
+        headers.update(self.auth.header)
+        data, _ = self.session.request(
+            "put", url, headers=headers, byte_data=object_bytes,
         )
         return data
