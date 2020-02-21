@@ -6,6 +6,7 @@ import urllib
 from datetime import date, datetime, timedelta
 
 from .session import Session
+from .urls import BASE_URL
 from .utils import Logger  # noqa:F401
 
 
@@ -14,7 +15,7 @@ class ForgeBase(object):
     Superclass for all api model classes in this Forge Python Wrapper.
     """
 
-    session = Session()
+    session = Session(base_url=BASE_URL)
     TODAY = date.today()
     TODAY_STRING = TODAY.strftime("%Y-%m-%d")
     IN_ONE_YEAR_STRING = (TODAY + timedelta(365)).strftime("%Y-%m-%d")
