@@ -94,7 +94,7 @@ class ForgeBase(object):
         def inner(self, *args, **kwargs):
             now = datetime.now()
             timedelta = int((now - self.auth.timestamp).total_seconds()) + 1
-            if timedelta >= self.auth.expires_in:
+            if timedelta >= int(self.auth.expires_in):
                 self.auth.timestamp = now
                 self.auth.refresh()
             return func(self, *args, **kwargs)
