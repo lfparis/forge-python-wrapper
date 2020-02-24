@@ -21,3 +21,5 @@ forge/errors.py
 
 Pipfile
 Pipfile.lock
+
+test.csv
