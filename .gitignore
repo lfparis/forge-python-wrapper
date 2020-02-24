@@ -15,7 +15,9 @@ env/
 examples/test.py
 tests/
 
-requirements.txt
 setup.py
 
 forge/errors.py
+
+Pipfile
+Pipfile.lock
