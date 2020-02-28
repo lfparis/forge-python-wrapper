@@ -3,23 +3,27 @@
 .tox
 *egg-info
 *__pycache__
+*.pyc
 .pytest_cache
+.mypy_cache\
+.env
 .cache
 *.todo
-*.rvt
+
+Pipfile
+Pipfile.lock
 
 build/
 dist/
 env/
 
-examples/test.py
+migration/
 tests/
-
+forge/errors.py
 setup.py
 
-forge/errors.py
-
-Pipfile
-Pipfile.lock
-
-test.csv
+*.rvt
+*.rcs
+*.pdf
+*.dwg
+*.csv
