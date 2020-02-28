@@ -7,13 +7,7 @@ try:
 except ImportError:
     from collections import Iterable
 
-
 from .logger import Logger  # noqa
-
-try:
-    from .query import Query  # noqa
-except ImportError:
-    pass
 
 
 def pretty_print(obj):
