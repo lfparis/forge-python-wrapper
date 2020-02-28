@@ -42,7 +42,7 @@ except ImportError:
 
 from ..utils import Logger  # noqa: E402
 
-logger = Logger(__name__)()
+logger = Logger.start(__name__)
 
 
 class Request(object):

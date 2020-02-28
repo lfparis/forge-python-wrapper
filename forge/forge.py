@@ -9,8 +9,6 @@ from .api import ForgeApi
 from .auth import ForgeAuth
 from .base import ForgeBase, Logger
 
-logger = Logger(__name__)()
-
 
 class ForgeApp(ForgeBase):
     def __init__(
@@ -24,7 +22,7 @@ class ForgeApp(ForgeBase):
         redirect_uri=None,
         username=None,
         password=None,
-        log=True,
+        log_level="info",
     ):
         """
         """
@@ -37,17 +35,15 @@ class ForgeApp(ForgeBase):
             grant_type=grant_type,
             username=username,
             password=password,
-            log=log,
+            log_level=log_level,
         )
 
-        self.api = ForgeApi(auth=self.auth, log=log)
+        self.api = ForgeApi(auth=self.auth, log_level=log_level)
 
         if hub_id or os.environ.get("FORGE_HUB_ID"):
             self.hub_id = hub_id or os.environ.get("FORGE_HUB_ID")
 
-        self.log = log
-        if self.log:
-            self.logger = logger
+        self.logger = Logger.start(__name__, level=log_level)
 
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(

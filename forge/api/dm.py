@@ -3,15 +3,14 @@ from __future__ import absolute_import
 from ..base import ForgeBase, Logger
 from ..urls import DATA_V1_URL, PROJECT_V1_URL, OSS_V2_URL
 
-logger = Logger(__name__)()
+logger = Logger.start(__name__)
 
 
 class DM(ForgeBase):
     def __init__(self, *args, **kwargs):
         self.auth = kwargs.get("auth")
-        self.log = kwargs.get("log")
-        if self.log:
-            self.logger = logger
+        self.log_level = kwargs.get("log_level")
+        self.logger = Logger.start(__name__, level=self.log_level)
 
     def _set_headers(self, x_user_id=None):
         headers = {}
@@ -107,7 +106,7 @@ class DM(ForgeBase):
         }
         contents = self._get_iter(url, params=params, x_user_id=x_user_id)
         if contents and self.log:
-            self.logger.info(
+            self.logger.debug(
                 "Fetched {} items from project: {}, folder: {}".format(
                     len(contents), project_id, folder_id
                 )
@@ -132,7 +131,7 @@ class DM(ForgeBase):
         versions = self._get_iter(url, x_user_id=x_user_id)
         if versions and self.log:
             self.logger.info(
-                "Fetched {} versions from item: {} in projcet: {}".format(
+                "Fetched {} versions from item: {} in project: {}".format(
                     len(versions), item_id, project_id
                 )
             )

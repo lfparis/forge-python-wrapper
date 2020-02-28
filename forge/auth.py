@@ -11,8 +11,6 @@ from selenium.webdriver.chrome.options import Options
 from .base import ForgeBase, Logger
 from .urls import AUTH_V1_URL
 
-logger = Logger(__name__)()
-
 
 class ForgeAuth(ForgeBase):
     def __init__(
@@ -42,12 +40,10 @@ class ForgeAuth(ForgeBase):
             redirect_uri (``string``, default=None): (Not needed for 2-Legged Context) URL-encoded callback URL which must match the pattern of the callback URL field of the app's registration. If not provided, it will attempt to look for the 'FORGE_REDIRECT_URI' environment variable.
             username (``string``, default=None): (Not needed for 2-Legged Context) Email or Username credential to an Autodesk Account. If not provided, it will attempt to look for the 'FORGE_USERNAME' environment variable.
             password (``string``, default=None): (Not needed for 2-Legged Context) Password credential to an Autodesk Account. If not provided, it will attempt to look for the 'FORGE_PASSWORD' environment variable.
-            log (``bool``, default=True): If True it logs succesful API calls to logger.
+            log_level (``string``, default="info"): Logging level.
         """  # noqa:E501
         self.timestamp = datetime.now()
-
-        self.log = log
-        self.logger = logger
+        self.logger = Logger.start(__name__, level=self.log_level)
         self.client_id = client_id or os.environ.get("FORGE_CLIENT_ID")
         self.client_secret = client_secret or os.environ.get(
             "FORGE_CLIENT_SECRET"
@@ -162,7 +158,7 @@ class ForgeAuth(ForgeBase):
             driver.quit()
 
         except Exception as e:
-            self.logger.warning(
+            self.logger.error(
                 "Please provide the correct user information."
                 + "\n\nException: {}".format(e)
             )
