@@ -43,7 +43,7 @@ class ForgeAuth(ForgeBase):
             log_level (``string``, default="info"): Logging level.
         """  # noqa:E501
         self.timestamp = datetime.now()
-        self.logger = Logger.start(__name__, level=self.log_level)
+        self.logger = Logger.start(__name__, level=log_level)
         self.client_id = client_id or os.environ.get("FORGE_CLIENT_ID")
         self.client_secret = client_secret or os.environ.get(
             "FORGE_CLIENT_SECRET"
