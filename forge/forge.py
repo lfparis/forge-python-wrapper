@@ -885,7 +885,7 @@ class Item(Content):
             self.bytes = None
 
     @Content._validate_project
-    def transfer(self, target_host, chunk_size=3000000):
+    def transfer(self, target_host, chunk_size=3000000, incl_versions=False):
         if not getattr(self, "metadata", None):
             self.get_metadata()
 
@@ -903,11 +903,20 @@ class Item(Content):
                 "A 'project' attribute has not been defined on the target_host"
             )
 
+        self.target_host = target_host
+        if incl_versions:
+            # self._first_transfer(chunk_size)
+            self._transfer(chunk_size)
+        else:
+            self._transfer(self.storage_id, chunk_size)
+
+    def _transfer(self, storage_id, chunk_size):
+        bucket_key, object_name = storage_id.split(":")[-1].split("/")
         details = self.project.app.api.dm.get_object_details(
-            self.bucket_key, self.object_name
+            bucket_key, object_name
         )
         total_size = details.get("size")
-        storage = target_host._add_storage(self.name)
+        storage = self.target_host._add_storage(self.name)
         tg_bucket_key, tg_object_name = storage["id"].split(":")[-1].split("/")
 
         self.project.app.logger.info(
@@ -934,7 +943,7 @@ class Item(Content):
                 self.bucket_key, self.object_name, byte_range=(lower, upper),
             )
 
-            target_host.project.app.api.dm.put_object_resumable(
+            self.target_host.project.app.api.dm.put_object_resumable(
                 tg_bucket_key,
                 tg_object_name,
                 chunk,
@@ -947,12 +956,12 @@ class Item(Content):
             count += 1
 
         pbar.close()
-        target_host.project.app.api.dm.post_item(
-            target_host.project.id["dm"],
-            target_host.id,
+        self.target_host.project.app.api.dm.post_item(
+            self.target_host.project.id["dm"],
+            self.target_host.id,
             storage["id"],
             self.name,
-            x_user_id=target_host.project.x_user_id,
+            x_user_id=self.target_host.project.x_user_id,
         )
         self.project.app.logger.info(
             "Finished transfer of: '{}'".format(self.name)

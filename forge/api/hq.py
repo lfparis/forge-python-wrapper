@@ -29,7 +29,7 @@ class HQ(ForgeBase):
             if len(data) < 100:
                 break
 
-        if response and self.log:
+        if response:
             if isinstance(response[0], dict):
                 self.logger.info(
                     "Fetched {} {} from Autodesk BIM 360".format(
@@ -97,12 +97,10 @@ class HQ(ForgeBase):
             message="project '{}'".format(name),
         )
         if success:
-            if self.log:
-                self.logger.info("Added: {}".format(name))
+            self.logger.info("Added: {}".format(name))
             return data
         else:
-            if self.log:
-                self.logger.warning("Failed to add: {}".format(name))
+            self.logger.warning("Failed to add: {}".format(name))
 
     @ForgeBase._validate_token
     def patch_project(
@@ -131,12 +129,11 @@ class HQ(ForgeBase):
                 ),
             )
             if success:
-                if self.log:
-                    self.logger.info(
-                        "{}: updated {} to {}".format(
-                            project_name or project_id, key, json_data[key]
-                        )
+                self.logger.info(
+                    "{}: updated {} to {}".format(
+                        project_name or project_id, key, json_data[key]
                     )
+                )
                 return data
 
     # HQ V2
@@ -199,7 +196,7 @@ class HQ(ForgeBase):
         )
 
         # if success
-        if success and self.log:
+        if success:
             # users added
             if data.get("success") and data["success"] > 0:
                 for item in data["success_items"]:
@@ -285,10 +282,9 @@ class HQ(ForgeBase):
             )
 
             if success:
-                if self.log:
-                    self.logger.info(
-                        "{}: updated {}".format(
-                            project_name or project_id, user["email"]
-                        )
+                self.logger.info(
+                    "{}: updated {}".format(
+                        project_name or project_id, user["email"]
                     )
+                )
                 return data

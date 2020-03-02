@@ -60,7 +60,7 @@ class DM(ForgeBase):
     def get_projects(self, x_user_id=None):
         url = "{}/hubs/{}/projects".format(PROJECT_V1_URL, self.hub_id)
         projects = self._get_iter(url, x_user_id=x_user_id)
-        if projects and self.log:
+        if projects:
             self.logger.info(
                 "Fetched {} projects from Autodesk BIM 360".format(
                     len(projects)
@@ -105,7 +105,7 @@ class DM(ForgeBase):
             "includeHidden": include_hidden,
         }
         contents = self._get_iter(url, params=params, x_user_id=x_user_id)
-        if contents and self.log:
+        if contents:
             self.logger.debug(
                 "Fetched {} items from project: {}, folder: {}".format(
                     len(contents), project_id, folder_id
@@ -129,7 +129,7 @@ class DM(ForgeBase):
             DATA_V1_URL, project_id, item_id
         )
         versions = self._get_iter(url, x_user_id=x_user_id)
-        if versions and self.log:
+        if versions:
             self.logger.info(
                 "Fetched {} versions from item: {} in project: {}".format(
                     len(versions), item_id, project_id
@@ -318,12 +318,11 @@ class DM(ForgeBase):
             ),
         )
         if success:
-            if self.log:
-                self.logger.info(
-                    "{}: added '{}' folder".format(
-                        project_name or project_id, folder_name
-                    )
+            self.logger.info(
+                "{}: added '{}' folder".format(
+                    project_name or project_id, folder_name
                 )
+            )
             return data
 
     # DATA_V1 - COMMANDS
