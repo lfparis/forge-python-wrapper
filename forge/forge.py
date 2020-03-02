@@ -9,6 +9,8 @@ from .api import ForgeApi
 from .auth import ForgeAuth
 from .base import ForgeBase, Logger
 
+logger = Logger.start(__name__)
+
 
 class ForgeApp(ForgeBase):
     def __init__(
@@ -43,7 +45,8 @@ class ForgeApp(ForgeBase):
         if hub_id or os.environ.get("FORGE_HUB_ID"):
             self.hub_id = hub_id or os.environ.get("FORGE_HUB_ID")
 
-        self.logger = Logger.start(__name__, level=log_level)
+        self.logger = logger
+        Logger.set_level(self.logger, log_level)
 
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(
@@ -639,12 +642,11 @@ class Folder(Content):
                 else:
                     index = sub_folder_names.index(folder_name)
                     folder = self.contents[index]
-                    if self.project.app.log:
-                        self.project.app.logger.warning(
-                            "{}: folder '{}' already exists in '{}'".format(
-                                self.project.name, folder_name, self.name
-                            )
+                    self.project.app.logger.warning(
+                        "{}: folder '{}' already exists in '{}'".format(
+                            self.project.name, folder_name, self.name
                         )
+                    )
             except Exception as e:
                 self.project.app.logger.warning(
                     "{}: couldn't add '{}' folder to '{}'".format(

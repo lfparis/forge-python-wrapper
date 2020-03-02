@@ -11,6 +11,8 @@ from selenium.webdriver.chrome.options import Options
 from .base import ForgeBase, Logger
 from .urls import AUTH_V1_URL
 
+logger = Logger.start(__name__)
+
 
 class ForgeAuth(ForgeBase):
     def __init__(
@@ -43,7 +45,8 @@ class ForgeAuth(ForgeBase):
             log_level (``string``, default="info"): Logging level.
         """  # noqa:E501
         self.timestamp = datetime.now()
-        self.logger = Logger.start(__name__, level=log_level)
+        self.logger = logger
+        Logger.set_level(self.logger, log_level)
         self.client_id = client_id or os.environ.get("FORGE_CLIENT_ID")
         self.client_secret = client_secret or os.environ.get(
             "FORGE_CLIENT_SECRET"

@@ -10,7 +10,8 @@ class DM(ForgeBase):
     def __init__(self, *args, **kwargs):
         self.auth = kwargs.get("auth")
         self.log_level = kwargs.get("log_level")
-        self.logger = Logger.start(__name__, level=self.log_level)
+        self.logger = logger
+        Logger.set_level(self.logger, self.log_level)
 
     def _set_headers(self, x_user_id=None):
         headers = {}

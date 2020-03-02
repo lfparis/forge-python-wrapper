@@ -5,12 +5,15 @@ import time
 from ..base import ForgeBase, Logger
 from ..urls import HQ_V1_URL, HQ_V2_URL
 
+logger = Logger.start(__name__)
+
 
 class HQ(ForgeBase):
     def __init__(self, *args, **kwargs):
         self.auth = kwargs.get("auth")
         self.log_level = kwargs.get("log_level")
-        self.logger = Logger.start(__name__, level=self.log_level)
+        self.logger = logger
+        Logger.set_level(self.logger, self.log_level)
 
     def _get_iter(self, url, name, headers=None, params={}):
         params["limit"] = 100
