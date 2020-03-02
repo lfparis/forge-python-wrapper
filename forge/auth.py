@@ -23,7 +23,7 @@ class ForgeAuth(ForgeBase):
         redirect_uri=None,
         username=None,
         password=None,
-        log=True,
+        log_level="info",
     ):
         """
         This class wraps methods found in the Authentication (OAuth) API
