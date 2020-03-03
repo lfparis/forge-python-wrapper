@@ -225,10 +225,10 @@ class DM(ForgeBase):
         }
         if not copy_from_id:
             json_data["data"]["attributes"]["extension"].update(
-                {"type": DM.TYPES[self.hub_type]["items"]}
+                {"type": DM.TYPES[self.hub_type]["items"]["file"]}
             )
             json_data["included"][0]["attributes"]["extension"].update(
-                {"type": DM.TYPES[self.hub_type]["versions"]}
+                {"type": DM.TYPES[self.hub_type]["versions"]["file"]}
             )
 
         data, _ = self.session.request(
@@ -266,7 +266,7 @@ class DM(ForgeBase):
 
         if not copy_from_id:
             json_data["data"]["attributes"]["extension"].update(
-                {"type": DM.TYPES[self.hub_type]["versions"]}
+                {"type": DM.TYPES[self.hub_type]["versions"]["file"]}
             )
             json_data["data"]["relationships"].update(
                 {"storage": {"data": {"type": "objects", "id": storage_id}}}
