@@ -31,6 +31,7 @@ class ForgeBase(object):
             "items": "items:{}:File".format(BIM_360_TYPES["a."]),
             "folders": "folders:{}:Folder".format(BIM_360_TYPES["a."]),
             "versions": "versions:{}:File".format(BIM_360_TYPES["a."]),
+            "composite": "versions:autodesk.a360:CompositeDesign",
             "deleted": "versions:{}:Deleted".format(BIM_360_TYPES["a."]),
         },
         BIM_360_TYPES["b."]: {
@@ -38,6 +39,7 @@ class ForgeBase(object):
             "items": "items:{}:File".format(BIM_360_TYPES["b."]),
             "folders": "folders:{}:Folder".format(BIM_360_TYPES["b."]),
             "versions": "versions:{}:File".format(BIM_360_TYPES["b."]),
+            "composite": "versions:autodesk.a360:CompositeDesign",
             "deleted": "versions:{}:Deleted".format(BIM_360_TYPES["b."]),
             "commands": {
                 "get_publish_model_job": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
@@ -75,11 +77,7 @@ class ForgeBase(object):
                 url_params += "&"
             url_params += key + "="
             value = str(params[key])
-            try:
-                value = urllib.parse.quote(value)
-            except Exception:
-                value = urllib.pathname2url(value)
-            url_params += value
+            url_params += ForgeBase._urlencode(value)
             count += 1
         return url + url_params
 
