@@ -72,7 +72,7 @@ class ForgeApp(ForgeBase):
             elif self.hub_id[:2] != "b.":
                 raise ValueError(
                     "The 'app.hub_id' must be a {} hub.".format(
-                        ForgeBase.BIM_360_TYPES["b."]
+                        ForgeBase.NAMESPACES["b."]
                     )
                 )
             return func(self, *args, **kwargs)
@@ -114,14 +114,13 @@ class ForgeApp(ForgeBase):
         self._project_indices_by_id = {}
         self._project_indices_by_name = {}
 
-        if self.hub_type == self.BIM_360_TYPES["a."]:
+        if self.hub_type == self.NAMESPACES["a."]:
             if not self.auth.three_legged:
-                if self.log:
-                    self.logger.warning(
-                        "Failed to get projects. '{}' hubs only supports 3-legged access token.".format(  # noqa:E501
-                            self.BIM_360_TYPES["a."]
-                        )
+                self.logger.warning(
+                    "Failed to get projects. '{}' hubs only supports 3-legged access token.".format(  # noqa:E501
+                        self.NAMESPACES["a."]
                     )
+                )
             else:
                 for project in self.api.dm.get_projects():
                     self.projects.append(
@@ -140,7 +139,7 @@ class ForgeApp(ForgeBase):
                         project["attributes"]["name"]
                     ] = (len(self.projects) - 1)
 
-        elif self.hub_type == self.BIM_360_TYPES["b."]:
+        elif self.hub_type == self.NAMESPACES["b."]:
 
             if source.lower() in ("all", "docs"):
                 for project in self.api.dm.get_projects():
@@ -187,7 +186,7 @@ class ForgeApp(ForgeBase):
                             len(self.projects) - 1
                         )
 
-            elif source.lower() in ("all", "admin") and self.log:
+            elif source.lower() in ("all", "admin"):
                 self.logger.warning(
                     "Failed to get projects. The BIM 360 API only supports 2-legged access tokens"  # noqa:E501
                 )
@@ -311,7 +310,7 @@ class Project(object):
             if self.app.hub_id[:2] != "b.":
                 raise ValueError(
                     "The app.hub_id attribute must be a {} hub.".format(
-                        ForgeBase.BIM_360_TYPES["b."]
+                        ForgeBase.NAMESPACES["b."]
                     )
                 )
             return func(self, *args, **kwargs)
@@ -431,10 +430,10 @@ class Project(object):
         ]
 
         if self.top_folders:
-            if self.app.hub_type == ForgeBase.BIM_360_TYPES["a."]:
+            if self.app.hub_type == ForgeBase.NAMESPACES["a."]:
                 self.project_files = self.top_folders[0]
                 self.plans = None
-            elif self.app.hub_type == ForgeBase.BIM_360_TYPES["b."]:
+            elif self.app.hub_type == ForgeBase.NAMESPACES["b."]:
                 folder_names = [folder.name for folder in self.top_folders]
                 self.project_files = (
                     self.top_folders[folder_names.index("Project Files")]
@@ -735,7 +734,7 @@ class Folder(Content):
         else:
             return item
 
-    def find(self, value, key="name"):
+    def find(self, value, key="name", shallow=True):
         """key = name or id"""
         if key.lower() not in ("name", "id"):
             raise ValueError()
@@ -744,7 +743,7 @@ class Folder(Content):
             self.get_contents()
 
         for content, level in self._iter_contents():
-            if level != 0:
+            if shallow and level != 0:
                 continue
             if getattr(content, key, None) == value:
                 return content
@@ -788,8 +787,8 @@ class Item(Content):
         self.deleted = self.metadata["included"][0]["attributes"]["extension"][
             "type"
         ] in (
-            ForgeApp.TYPES[ForgeApp.BIM_360_TYPES["a."]]["deleted"],
-            ForgeApp.TYPES[ForgeApp.BIM_360_TYPES["b."]]["deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["deleted"],
         )
 
         try:
@@ -900,19 +899,21 @@ class Item(Content):
             self.bytes = None
             return
 
-        if not target_host.project:
-            raise AttributeError(
-                "A 'project' attribute has not been defined on the target_host"
-            )
-
         self.target_host = target_host
-        if incl_versions:
-            # self._first_transfer(chunk_size)
-            self._transfer(chunk_size)
-        else:
-            self._transfer(self.storage_id, chunk_size)
+        target_item = self.target_host.find(self.name)
 
-    def _transfer(self, storage_id, chunk_size):
+        if not target_item:
+            if incl_versions:
+                # add all versions
+                print("in progress")
+            else:
+                # add only latest version
+                self._transfer(self.storage_id, target_item, chunk_size)
+        elif target_item and incl_versions:
+            print("in progress")
+            # add next versions if applicable
+
+    def _transfer(self, storage_id, target_item, chunk_size, new=True):
         bucket_key, object_name = storage_id.split(":")[-1].split("/")
         details = self.project.app.api.dm.get_object_details(
             bucket_key, object_name
@@ -958,13 +959,24 @@ class Item(Content):
             count += 1
 
         pbar.close()
-        self.target_host.project.app.api.dm.post_item(
-            self.target_host.project.id["dm"],
-            self.target_host.id,
-            storage["id"],
-            self.name,
-            x_user_id=self.target_host.project.x_user_id,
-        )
+
+        if new:
+            self.target_host.project.app.api.dm.post_item(
+                self.target_host.project.id["dm"],
+                self.target_host.id,
+                storage["id"],
+                self.name,
+                x_user_id=self.target_host.project.x_user_id,
+            )
+        else:
+            self.target_host.project.app.api.dm.post_item_version(
+                self.target_host.project.id["dm"],
+                storage_id,
+                target_item.id,
+                self.name,
+                x_user_id=self.target_host.project.x_user_id,
+            )
+
         self.project.app.logger.info(
             "Finished transfer of: '{}'".format(self.name)
         )
