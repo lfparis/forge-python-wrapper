@@ -51,6 +51,14 @@ class ForgeBase(object):
     }
 
     @staticmethod
+    def _urlencode(value):
+        try:
+            value = urllib.parse.quote(value)
+        except Exception:
+            value = urllib.pathname2url(value)
+        return value
+
+    @staticmethod
     def _compose_url(url, params):
         """
         Composes url with query string params.
