@@ -20,6 +20,7 @@ class ForgeBase(object):
     TODAY_STRING = TODAY.strftime("%Y-%m-%d")
     IN_ONE_YEAR_STRING = (TODAY + timedelta(365)).strftime("%Y-%m-%d")
 
+    # TODO - Add all Extension Types (https://forge.autodesk.com/en/docs/data/v2/developers_guide/basics/#extension-types)  # noqa: E501
     BIM_360_TYPES = {
         "a.": "autodesk.core",  # bim360teams
         "b.": "autodesk.bim360",  # bim360docs
