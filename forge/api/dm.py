@@ -141,13 +141,21 @@ class DM(ForgeBase):
         return versions
 
     @ForgeBase._validate_token
+    def get_version(self, project_id, version_id, x_user_id=None):
+        url = "{}/projects/{}/versions/{}".format(
+            DATA_V1_URL, project_id, self._urlencode(version_id)
+        )
+        headers = self._set_headers(x_user_id)
+        data, _ = self.session.request("get", url, headers=headers)
+        return data
+
+    @ForgeBase._validate_token
     def get_version_download_formats(
         self, project_id, version_id, x_user_id=None
     ):
         url = "{}/projects/{}/versions/{}/downloadFormats".format(
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
-        print(url)
         headers = self._set_headers(x_user_id)
         data, _ = self.session.request("get", url, headers=headers)
         return data
