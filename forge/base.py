@@ -20,36 +20,102 @@ class ForgeBase(object):
     TODAY_STRING = TODAY.strftime("%Y-%m-%d")
     IN_ONE_YEAR_STRING = (TODAY + timedelta(365)).strftime("%Y-%m-%d")
 
-    # TODO - Add all Extension Types (https://forge.autodesk.com/en/docs/data/v2/developers_guide/basics/#extension-types)  # noqa: E501
-    BIM_360_TYPES = {
+    # TODO - Reorganise Extension Types (https://forge.autodesk.com/en/docs/data/v2/developers_guide/basics/#extension-types)  # noqa: E501
+
+    BASE_TYPES = [
+        "hubs",
+        "items",
+        "folders",
+        "versions",
+        "commands",
+        "derived",
+        "xrefs",
+        "auxiliary",
+        "dependencies",
+    ]
+
+    NAMESPACES = {
         "a.": "autodesk.core",  # bim360teams
         "b.": "autodesk.bim360",  # bim360docs
+        "fusion360": "autodesk.fusion360",  # fusion360
+        "a360": "autodesk.a360",  # a360
     }
 
+    EXTENSION_TYPES = [
+        "Account",
+        "Attachment",
+        "C4RModel",
+        "CompositeDesign",
+        "Deleted",
+        "Design",
+        "Document",
+        "Drawing",
+        "DrawingToDesign",
+        "File",
+        "FileToDocument",
+        "FileToReviewDocument",
+        "Folder",
+        "Hub",
+        "PersonalHub",
+        "Xref",
+    ]
+
+    COMMAND_TYPES = [
+        "CheckPermission",
+        "ListRefs",
+        "ListItems",
+        "CreateFolder",
+        "C4RModelPublish",
+        "C4RModelGetPublishJob",
+    ]
+
     TYPES = {
-        BIM_360_TYPES["a."]: {
-            "hubs": "hubs:{}:Hub".format(BIM_360_TYPES["a."]),
-            "items": "items:{}:File".format(BIM_360_TYPES["a."]),
-            "folders": "folders:{}:Folder".format(BIM_360_TYPES["a."]),
-            "versions": "versions:{}:File".format(BIM_360_TYPES["a."]),
-            "composite": "versions:autodesk.a360:CompositeDesign",
-            "deleted": "versions:{}:Deleted".format(BIM_360_TYPES["a."]),
-        },
-        BIM_360_TYPES["b."]: {
-            "hubs": "hubs:{}:Account".format(BIM_360_TYPES["b."]),
-            "items": "items:{}:File".format(BIM_360_TYPES["b."]),
-            "folders": "folders:{}:Folder".format(BIM_360_TYPES["b."]),
-            "versions": "versions:{}:File".format(BIM_360_TYPES["b."]),
-            "composite": "versions:autodesk.a360:CompositeDesign",
-            "deleted": "versions:{}:Deleted".format(BIM_360_TYPES["b."]),
+        NAMESPACES["a."]: {
+            "hubs": "hubs:{}:Hub".format(NAMESPACES["a."]),
+            "items": {"file": "items:{}:File".format(NAMESPACES["a."])},
+            "folders": "folders:{}:Folder".format(NAMESPACES["a."]),
+            "versions": {
+                "file": "versions:{}:File".format(NAMESPACES["a."]),
+                "composite_design": "versions:autodesk.a360:CompositeDesign",
+                "deleted": "versions:{}:Deleted".format(NAMESPACES["a."]),
+            },
             "commands": {
                 "get_publish_model_job": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
-                    BIM_360_TYPES["b."]
+                    NAMESPACES["b."]
                 ),
                 "publish_model": "commands:{}:C4RModelPublish".format(
-                    BIM_360_TYPES["b."]
+                    NAMESPACES["b."]
                 ),
             },
+            "derived": None,
+            "xrefs": None,
+            "auxiliary": None,
+            "dependencies": None,
+        },
+        NAMESPACES["b."]: {
+            "hubs": "hubs:{}:Account".format(NAMESPACES["b."]),
+            "items": {
+                "file": "items:{}:File".format(NAMESPACES["b."]),
+                "c4rmodel": "items:{}:C4RModel​".format(NAMESPACES["b."]),
+            },
+            "folders": "folders:{}:Folder".format(NAMESPACES["b."]),
+            "versions": {
+                "files": "versions:{}:File".format(NAMESPACES["b."]),
+                "c4rmodel": "versions:{}:C4RModel​".format(NAMESPACES["b."]),
+                "deleted": "versions:{}:Deleted".format(NAMESPACES["b."]),
+            },
+            "commands": {
+                "get_publish_model_job": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
+                    NAMESPACES["b."]
+                ),
+                "publish_model": "commands:{}:C4RModelPublish".format(
+                    NAMESPACES["b."]
+                ),
+            },
+            "derived": None,
+            "xrefs": None,
+            "auxiliary": None,
+            "dependencies": None,
         },
     }
 
@@ -122,7 +188,7 @@ class ForgeBase(object):
             raise TypeError("Hub ID must be a string")
         else:
             self._hub_id = val
-            self.hub_type = ForgeBase.BIM_360_TYPES.get(val[0:2])
+            self.hub_type = ForgeBase.NAMESPACES.get(val[0:2])
             self.account_id = val.split(".")[-1]
             if not self.hub_type:
                 raise ValueError("Invalid Hub ID")
