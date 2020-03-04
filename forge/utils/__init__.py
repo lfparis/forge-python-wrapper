@@ -13,7 +13,7 @@ from .logger import Logger  # noqa
 def pretty_print(obj):
     """ """
     try:
-        print(dumps(obj, sort_keys=True, indent=4))
+        print(dumps(obj, sort_keys=True, indent=4, ensure_ascii=False))
     except Exception:
         if isinstance(obj, Iterable):
             for item in obj:
