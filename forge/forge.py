@@ -777,6 +777,10 @@ class Item(Content):
         self.versions = []
         self.storage_id = None
 
+    def _unpack_storage_id(self, storage_id):
+        """returns bucket_key, object_name"""
+        return storage_id.split(":")[-1].split("/")
+
     @Content._validate_project
     def get_metadata(self):
         self.metadata = self.project.app.api.dm.get_item(
@@ -795,9 +799,9 @@ class Item(Content):
             self.storage_id = self.metadata["included"][0]["relationships"][
                 "storage"
             ]["data"]["id"]
-            self.bucket_key, self.object_name = self.storage_id.split(":")[
-                -1
-            ].split("/")
+            self.bucket_key, self.object_name = self._unpack_storage_id(
+                self.storage_id
+            )
         except KeyError:
             # no storage key
             pass
@@ -832,6 +836,21 @@ class Item(Content):
             if version["type"] == "versions"
         }
         return self.versions
+
+    @Content._validate_project
+    def get_version_data(self, version_id):
+        return self.project.app.api.dm.get_version(
+            self.project.id["dm"],
+            version_id,
+            x_user_id=self.project.x_user_id,
+        )
+
+    @Content._validate_project
+    def get_details(self, storage_id):
+        bucket_key, object_name = self._unpack_storage_id(storage_id)
+        return self.project.app.api.dm.get_object_details(
+            bucket_key, object_name
+        )
 
     @Content._validate_project
     def get_publish_status(self):
@@ -918,13 +937,11 @@ class Item(Content):
             # add next versions if applicable
 
     def _transfer(self, storage_id, target_item, chunk_size, new=True):
-        bucket_key, object_name = storage_id.split(":")[-1].split("/")
-        details = self.project.app.api.dm.get_object_details(
-            bucket_key, object_name
-        )
+        bucket_key, object_name = self._unpack_storage_id(storage_id)
+        details = self.get_details(storage_id)
         total_size = details.get("size")
-        storage = self.target_host._add_storage(self.name)
-        tg_bucket_key, tg_object_name = storage["id"].split(":")[-1].split("/")
+        tg_storage_id = self.target_host._add_storage(self.name).get("id")
+        tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
 
         self.project.app.logger.info(
             "Beginning transfer of: '{}'".format(self.name)
@@ -947,7 +964,7 @@ class Item(Content):
             upper -= 1
 
             chunk = self.project.app.api.dm.get_object(
-                self.bucket_key, self.object_name, byte_range=(lower, upper),
+                bucket_key, object_name, byte_range=(lower, upper),
             )
 
             self.target_host.project.app.api.dm.put_object_resumable(
@@ -968,7 +985,7 @@ class Item(Content):
             self.target_host.project.app.api.dm.post_item(
                 self.target_host.project.id["dm"],
                 self.target_host.id,
-                storage["id"],
+                tg_storage_id,
                 self.name,
                 x_user_id=self.target_host.project.x_user_id,
             )
