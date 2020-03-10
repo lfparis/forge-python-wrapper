@@ -827,7 +827,7 @@ class Item(Content):
     @Content._validate_project
     def get_versions(self):
         self.versions = {
-            version["attributes"]["versionNumber"]: version
+            int(version["attributes"]["versionNumber"]): version
             for version in self.project.app.api.dm.get_item_versions(
                 self.project.id["dm"],
                 self.id,
