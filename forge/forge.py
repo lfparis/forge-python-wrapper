@@ -871,7 +871,7 @@ class Item(Content):
             self.project.app.logger.info(
                 "Published model. Status is '{}'".format(status)
             )
-        else:
+        elif not publish_status.get("errors"):
             status = publish_status["data"]["attributes"]["status"]
             self.project.app.logger.info(
                 "Model did not need to be published. Latest version status is '{}'".format(  # noqa:E501
