@@ -422,6 +422,7 @@ class Project(object):
             Folder(
                 folder["attributes"]["name"],
                 folder["id"],
+                extension_type=folder["attributes"]["extension"]["type"],
                 data=folder,
                 project=self,
                 host=None,
@@ -519,13 +520,36 @@ class Project(object):
 
 
 class Content(object):
-    def __init__(self, name, item_id, data=None, project=None, host=None):
+    def __init__(
+        self,
+        name,
+        content_id,
+        extension_type=None,
+        data=None,
+        project=None,
+        host=None,
+    ):
         self.name = name
-        self.id = item_id
+        self.id = content_id
+        self.extension_type = extension_type
         self.data = data
-        self.host = host
         if project:
             self.project = project
+        if host:
+            self.host = host
+
+    @property
+    def extension_type(self):
+        if getattr(self, "_extension_type", None):
+            return self._extension_type
+
+    @extension_type.setter
+    def extension_type(self, extension_type):
+        self._extension_type = extension_type
+        self.deleted = extension_type in (
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["deleted"],
+        )
 
     @property
     def project(self):
@@ -543,6 +567,22 @@ class Content(object):
         else:
             self._project = project
 
+    @property
+    def host(self):
+        if getattr(self, "_host", None):
+            return self._host
+
+    @host.setter
+    def host(self, host):
+        if not isinstance(host, Folder):
+            raise TypeError("Item.project must be a Project")
+        elif not host.project:
+            raise AttributeError(
+                "A 'project' attribute has not been defined in your host"
+            )
+        else:
+            self._host = host
+
     def _validate_project(func):
         def inner(self, *args, **kwargs):
             if not self.project:
@@ -552,6 +592,20 @@ class Content(object):
             return func(self, *args, **kwargs)
 
         return inner
+
+    def _validate_host(func):
+        def inner(self, *args, **kwargs):
+            if not self.host:
+                raise AttributeError(
+                    "An 'host' attribute has not been defined."
+                )
+            return func(self, *args, **kwargs)
+
+        return inner
+
+    def _unpack_storage_id(self, storage_id):
+        """returns bucket_key, object_name"""
+        return storage_id.split(":")[-1].split("/")
 
 
 class Folder(Content):
@@ -594,6 +648,9 @@ class Folder(Content):
                     Item(
                         content["attributes"]["displayName"],
                         content["id"],
+                        extension_type=content["attributes"]["extension"][
+                            "type"
+                        ],
                         data=content,
                         project=self.project,
                         host=self,
@@ -604,6 +661,9 @@ class Folder(Content):
                     Folder(
                         content["attributes"]["name"],
                         content["id"],
+                        extension_type=content["attributes"]["extension"][
+                            "type"
+                        ],
                         data=content,
                         project=self.project,
                         host=self,
@@ -676,22 +736,29 @@ class Folder(Content):
 
     @Content._validate_project
     def _upload_file(self, storage_id, obj_bytes):
-        bucket_key, object_name = storage_id.split(":")[-1].split("/")
+        bucket_key, object_name = self._unpack_storage_id(storage_id)
         return self.project.app.api.dm.put_object(
             bucket_key, object_name, obj_bytes
         )
 
     @Content._validate_project
-    def add_item(self, name, obj_bytes):
+    def add_item(self, name, storage_id=None, obj_bytes=None):
         """
         name include extension
         """
-        storage = self._add_storage(name)
-        self._upload_file(storage["id"], obj_bytes)
+        if not storage_id and obj_bytes:
+            storage_id = self._add_storage(name).get("id")
+
+        if obj_bytes:
+            self._upload_file(storage_id, obj_bytes)
+
+        if not storage_id:
+            return
+
         item = self.project.app.api.dm.post_item(
             self.project.id["dm"],
             self.id,
-            storage["id"],
+            storage_id,
             name,
             x_user_id=self.project.x_user_id,
         )
@@ -700,6 +767,7 @@ class Folder(Content):
             return Item(
                 item["data"]["attributes"]["displayName"],
                 item["data"]["id"],
+                extension_type=item["data"]["attributes"]["extension"]["type"],
                 data=item,
                 project=self.project,
                 host=self,
@@ -727,6 +795,7 @@ class Folder(Content):
             return Item(
                 item["data"]["attributes"]["displayName"],
                 item["data"]["id"],
+                extension_type=item["data"]["attributes"]["extension"]["type"],
                 data=item,
                 project=self.project,
                 host=self,
@@ -777,10 +846,6 @@ class Item(Content):
         self.versions = []
         self.storage_id = None
 
-    def _unpack_storage_id(self, storage_id):
-        """returns bucket_key, object_name"""
-        return storage_id.split(":")[-1].split("/")
-
     @Content._validate_project
     def get_metadata(self):
         self.metadata = self.project.app.api.dm.get_item(
@@ -807,50 +872,59 @@ class Item(Content):
             pass
 
     @Content._validate_project
-    def add_version(self, name, obj_bytes):
+    @Content._validate_host
+    def add_version(self, name, storage_id=None, obj_bytes=None):
         """
         name include extension
         """
-        storage = self.host._add_storage(name)
-        self.host._upload_file(storage["id"], obj_bytes)
+        if not storage_id and obj_bytes:
+            storage_id = self.host._add_storage(name).get("id")
+
+        if obj_bytes:
+            self.host._upload_file(storage_id, obj_bytes)
+
+        if not storage_id:
+            return
+
+        version = self.project.app.api.dm.post_item_version(
+            self.project.id["dm"],
+            storage_id,
+            self.id,
+            name,
+            x_user_id=self.project.x_user_id,
+        )
 
         self.versions.append(
-            self.project.app.api.dm.post_item_version(
-                self.project.id["dm"],
-                storage["id"],
-                self.id,
-                name,
-                x_user_id=self.project.x_user_id,
+            Version(
+                int(version["attributes"]["versionNumber"]),
+                version["id"],
+                extension_type=version["attributes"]["extension"]["type"],
+                item=self,
+                data=version,
             )
         )
 
     @Content._validate_project
     def get_versions(self):
-        self.versions = {
-            int(version["attributes"]["versionNumber"]): version
+        self.versions = [
+            Version(
+                int(version["attributes"]["versionNumber"]),
+                version["id"],
+                extension_type=version["attributes"]["extension"]["type"],
+                item=self,
+                data=version,
+            )
             for version in self.project.app.api.dm.get_item_versions(
                 self.project.id["dm"],
                 self.id,
                 x_user_id=self.project.x_user_id,
             )
             if version["type"] == "versions"
+        ]
+        self._version_indices_by_number = {
+            version.number: i for i, version in enumerate(self.versions)
         }
         return self.versions
-
-    @Content._validate_project
-    def get_version_data(self, version_id):
-        return self.project.app.api.dm.get_version(
-            self.project.id["dm"],
-            version_id,
-            x_user_id=self.project.x_user_id,
-        )
-
-    @Content._validate_project
-    def get_details(self, storage_id):
-        bucket_key, object_name = self._unpack_storage_id(storage_id)
-        return self.project.app.api.dm.get_object_details(
-            bucket_key, object_name
-        )
 
     @Content._validate_project
     def get_publish_status(self):
@@ -878,6 +952,11 @@ class Item(Content):
                     status
                 )
             )
+        else:
+            status = None
+            self.project.app.logger.info(
+                "This item cannot need to be published"
+            )
 
     @Content._validate_project
     def download(self, save=False, location=None):
@@ -899,7 +978,7 @@ class Item(Content):
         )
         self.project.app.logger.info(
             "Download Finished - file size: {0:0.1f} MB".format(
-                len(self.bytes) / 1048 / 1000
+                len(self.bytes) / 1024 / 1024
             )
         )
         if save and location and os.path.isdir(location):
@@ -908,70 +987,156 @@ class Item(Content):
                 fp.write(self.bytes)
             self.bytes = None
 
-    @Content._validate_project
-    def transfer(self, target_host, chunk_size=3000000, incl_versions=False):
+    def load(self):
+        if getattr(self, "filepath", None):
+            with open(self.filepath, "rb") as fp:
+                self.bytes = fp.read()
+
+
+class Version(Content):
+    def __init__(
+        self, number, version_id, extension_type=None, item=None, data=None
+    ):
+        self.number = number
+        self.id = version_id
+        self.extension_type = extension_type
+        self.data = data
+        if item:
+            self.item = item
+
+    @property
+    def item(self):
+        if getattr(self, "_item", None):
+            return self._item
+
+    @item.setter
+    def item(self, item):
+        if not isinstance(item, Item):
+            raise TypeError("Version.item must be a Item")
+        elif not item.project:
+            raise AttributeError(
+                "A 'project' attribute has not been defined in your Item"
+            )
+        else:
+            self._item = item
+
+    def _validate_item(func):
+        def inner(self, *args, **kwargs):
+            if not self.item:
+                raise AttributeError(
+                    "An 'item' attribute has not been defined."
+                )
+            return func(self, *args, **kwargs)
+
+        return inner
+
+    @_validate_item
+    def get_metadata(self):
+        self.metadata = self.item.project.app.api.dm.get_version(
+            self.item.project.id["dm"],
+            self.id,
+            x_user_id=self.item.project.x_user_id,
+        )
+        if self.extension_type is None:
+            self.extension_type = self.metadata["data"]["attributes"][
+                "extension"
+            ]["type"]
+
+        try:
+            self.storage_id = self.metadata["data"]["relationships"][
+                "storage"
+            ]["data"]["id"]
+            self.bucket_key, self.object_name = self._unpack_storage_id(
+                self.storage_id
+            )
+        except KeyError:
+            self.storage_id = None
+
+        self.file_size = self.metadata["data"]["attributes"]["storageSize"]
+
+    @_validate_item
+    def get_details(self):
         if not getattr(self, "metadata", None):
             self.get_metadata()
 
         if not getattr(self, "storage_id", None):
-            self.project.app.logger.info(
-                "File '{}': No data to download. Hidden: {}, Deleted: {}".format(  # noqa:E501
-                    self.name, self.hidden, self.deleted
+            self.item.project.app.logger.info(
+                "File '{}' - Version '{}' : No data to download. Deleted: {}".format(  # noqa:E501
+                    self.item.name, self.number, self.deleted
                 )
             )
-            self.bytes = None
             return
 
-        self.target_host = target_host
-        target_item = self.target_host.find(self.name)
+        self.details = self.item.project.app.api.dm.get_object_details(
+            self.bucket_key, self.object_name
+        )
+        try:
+            self.storage_size = self.details["size"]
+        except (KeyError, TypeError):
+            self.storage_size = -1
 
-        if not target_item:
-            if incl_versions:
-                # add all versions
-                print("in progress")
-            else:
-                # add only latest version
-                self._transfer(self.storage_id, target_item, chunk_size)
-        elif target_item and incl_versions:
-            print("in progress")
-            # add next versions if applicable
+    @_validate_item
+    def transfer(
+        self,
+        target_host,
+        target_item=None,
+        chunk_size=5000000,
+        force_create=False,
+    ):
+        """
+        force_create to force create an item if item is not in target_host
+        """
+        self.get_details()
 
-    def _transfer(self, storage_id, target_item, chunk_size, new=True):
-        bucket_key, object_name = self._unpack_storage_id(storage_id)
-        details = self.get_details(storage_id)
-        total_size = details.get("size")
-        tg_storage_id = self.target_host._add_storage(self.name).get("id")
+        if not getattr(self, "storage_size", None):
+            # TODO - log no data
+            return
+
+        # find item to add version
+        elif not force_create and self.number != 1:
+            target_item = target_item or target_host.find(self.item.name)
+
+            if not target_item:
+                # TODO - log no item
+                return
+
+            target_item.get_versions()
+            if len(target_item.versions) != self.number - 1:
+                # TODO - log no version compatability
+                return
+
+        tg_storage_id = target_host._add_storage(self.name).get("id")
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
 
-        self.project.app.logger.info(
-            "Beginning transfer of: '{}'".format(self.name)
+        self.item.project.app.logger.info(
+            "Beginning transfer of: '{}'".format(self.item.name)
         )
 
         pbar = tqdm(
-            total=total_size,
+            total=self.storage_size,
             unit="iB",
             unit_scale=True,
-            desc="Transferring - {}".format(self.name),
+            desc="Transferring - {}".format(self.item.name),
         )
 
-        data_left = total_size
+        data_left = self.storage_size
         count = 0
         while data_left > 0:
             lower = count * chunk_size
             upper = lower + chunk_size
-            if upper > total_size:
-                upper = total_size
+            if upper > self.storage_size:
+                upper = self.storage_size
             upper -= 1
 
-            chunk = self.project.app.api.dm.get_object(
-                bucket_key, object_name, byte_range=(lower, upper),
+            chunk = self.item.project.app.api.dm.get_object(
+                self.bucket_key, self.object_name, byte_range=(lower, upper),
             )
 
-            self.target_host.project.app.api.dm.put_object_resumable(
+            target_host.project.app.api.dm.put_object_resumable(
                 tg_bucket_key,
                 tg_object_name,
                 chunk,
-                total_size,
+                self.storage_size,
                 (lower, upper),
             )
 
@@ -981,28 +1146,13 @@ class Item(Content):
 
         pbar.close()
 
-        if new:
-            self.target_host.project.app.api.dm.post_item(
-                self.target_host.project.id["dm"],
-                self.target_host.id,
-                tg_storage_id,
-                self.name,
-                x_user_id=self.target_host.project.x_user_id,
-            )
+        if force_create or self.number == 1:
+            target_host.add_item(self.item.name, storage_id=tg_storage_id)
         else:
-            self.target_host.project.app.api.dm.post_item_version(
-                self.target_host.project.id["dm"],
-                storage_id,
-                target_item.id,
-                self.name,
-                x_user_id=self.target_host.project.x_user_id,
+            target_item.add_version(self.item.name, storage_id=tg_storage_id)
+
+        self.item.project.app.logger.info(
+            "Finished transfer of: '{}' version: '{}'".format(
+                self.item.name, self.number
             )
-
-        self.project.app.logger.info(
-            "Finished transfer of: '{}'".format(self.name)
         )
-
-    def load(self):
-        if getattr(self, "filepath", None):
-            with open(self.filepath, "rb") as fp:
-                self.bytes = fp.read()
