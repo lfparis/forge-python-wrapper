@@ -228,7 +228,9 @@ class ForgeApp(ForgeBase):
             )
             if project:
                 self.projects.append(
-                    Project(project["name"], project["id"], data=project)
+                    Project(
+                        project["name"], project["id"], app=self, data=project
+                    )
                 )
                 self._project_indices_by_id[project["id"]] = (
                     len(self.projects) - 1
@@ -1105,7 +1107,7 @@ class Version(Content):
                 # TODO - log no version compatability
                 return
 
-        tg_storage_id = target_host._add_storage(self.name).get("id")
+        tg_storage_id = target_host._add_storage(self.item.name).get("id")
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
 
         self.item.project.app.logger.info(
