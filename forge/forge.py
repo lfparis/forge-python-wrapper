@@ -898,9 +898,11 @@ class Item(Content):
 
         self.versions.append(
             Version(
-                int(version["attributes"]["versionNumber"]),
-                version["id"],
-                extension_type=version["attributes"]["extension"]["type"],
+                int(version["data"]["attributes"]["versionNumber"]),
+                version["data"]["id"],
+                extension_type=version["data"]["attributes"]["extension"][
+                    "type"
+                ],
                 item=self,
                 data=version,
             )
@@ -1091,27 +1093,48 @@ class Version(Content):
         self.get_details()
 
         if not getattr(self, "storage_size", None):
-            # TODO - log no data
+            self.item.project.app.logger.warning(
+                "Couldn't add Version: {} of Item: '{}', because no data was found".format(  # noqa: E501
+                    self.number, self.item.name
+                )
+            )
             return
 
         # find item to add version
-        elif not force_create and self.number != 1:
-            target_item = target_item or target_host.find(self.item.name)
+        target_item = target_item or target_host.find(self.item.name)
 
-            if not target_item:
-                # TODO - log no item
-                return
+        if not target_item and (not force_create or self.number != 1):
+            self.item.project.app.logger.warning(
+                "Couldn't add Version: {} of Item: '{}' because no Item found".format(  # noqa: E501
+                    self.number, self.item.name
+                )
+            )
+            return
 
+        elif target_item:
             target_item.get_versions()
-            if len(target_item.versions) != self.number - 1:
-                # TODO - log no version compatability
+            if len(target_item.versions) == self.number:
+                self.item.project.app.logger.warning(
+                    "Couldn't add Version: {} of Item: '{}' because Version already exists".format(  # noqa: E501
+                        self.number, self.item.name
+                    )
+                )
+                return
+            elif len(target_item.versions) != self.number - 1:
+                self.item.project.app.logger.warning(
+                    "Couldn't add Version: {} of Item: '{}' because Item has {} versions".format(  # noqa: E501
+                        self.number, self.item.name, len(target_item.versions)
+                    )
+                )
                 return
 
         tg_storage_id = target_host._add_storage(self.item.name).get("id")
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
 
         self.item.project.app.logger.info(
-            "Beginning transfer of: '{}'".format(self.item.name)
+            "Beginning transfer of: '{}' - version: {}".format(
+                self.item.name, self.number
+            )
         )
 
         pbar = tqdm(

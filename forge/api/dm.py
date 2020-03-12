@@ -132,7 +132,7 @@ class DM(ForgeBase):
         )
         versions = self._get_iter(url, x_user_id=x_user_id)
         if versions:
-            self.logger.info(
+            self.logger.debug(
                 "Fetched {} versions from item: {} in project: {}".format(
                     len(versions), item_id, project_id
                 )
