@@ -176,10 +176,14 @@ class DM(ForgeBase):
         folder_id,
         object_id,
         name,
+        item_extension_type=None,
+        version_extension_type=None,
         copy_from_id=None,
         x_user_id=None,
     ):
         """
+        version_extension_type = file or composite_design or c4rmodel
+
         display_name = item["data"]["attributes"]["displayName"]
         file_type = "items:autodesk.bim360:File" or "items:autodesk.core:File"
         file_type = item["data"]["attributes"]["extension"]["type"]
@@ -225,10 +229,16 @@ class DM(ForgeBase):
         }
         if not copy_from_id:
             json_data["data"]["attributes"]["extension"].update(
-                {"type": DM.TYPES[self.hub_type]["items"]["file"]}
+                {
+                    "type": item_extension_type
+                    or DM.TYPES[self.hub_type]["items"]["File"]
+                }
             )
             json_data["included"][0]["attributes"]["extension"].update(
-                {"type": DM.TYPES[self.hub_type]["versions"]["file"]}
+                {
+                    "type": version_extension_type
+                    or DM.TYPES[self.hub_type]["versions"]["File"]
+                }
             )
 
         data, _ = self.session.request(
@@ -243,6 +253,7 @@ class DM(ForgeBase):
         storage_id,
         item_id,
         name,
+        version_extension_type=None,
         copy_from_id=None,
         x_user_id=None,
     ):
@@ -266,7 +277,10 @@ class DM(ForgeBase):
 
         if not copy_from_id:
             json_data["data"]["attributes"]["extension"].update(
-                {"type": DM.TYPES[self.hub_type]["versions"]["file"]}
+                {
+                    "type": version_extension_type
+                    or DM.TYPES[self.hub_type]["versions"]["File"]
+                }
             )
             json_data["data"]["relationships"].update(
                 {"storage": {"data": {"type": "objects", "id": storage_id}}}
@@ -328,7 +342,7 @@ class DM(ForgeBase):
                 "attributes": {
                     "name": folder_name,
                     "extension": {
-                        "type": DM.TYPES[self.hub_type]["folders"],
+                        "type": DM.TYPES[self.hub_type]["folders"]["Folder"],
                         "version": "1.0",
                     },
                 },
@@ -388,7 +402,7 @@ class DM(ForgeBase):
     def get_publish_model_job(
         self, project_id, item_id, x_user_id=None,
     ):
-        command = DM.TYPES[self.hub_type]["commands"]["get_publish_model_job"]
+        command = DM.TYPES[self.hub_type]["commands"]["C4RModelGetPublishJob"]
         return self._commands_publish(
             project_id, item_id, command, x_user_id=x_user_id
         )
@@ -397,7 +411,7 @@ class DM(ForgeBase):
     def publish_model(
         self, project_id, item_id, x_user_id=None,
     ):
-        command = DM.TYPES[self.hub_type]["commands"]["publish_model"]
+        command = DM.TYPES[self.hub_type]["commands"]["C4RModelPublish"]
         return self._commands_publish(
             project_id, item_id, command, x_user_id=x_user_id
         )
@@ -449,4 +463,12 @@ class DM(ForgeBase):
         data, _ = self.session.request(
             "put", url, headers=headers, byte_data=object_bytes,
         )
+        return data
+
+    @ForgeBase._validate_token
+    def put_object_copy(self, bucket_key, object_name, new_object_name):
+        url = "{}/buckets/{}/objects/{}/copyto/{}".format(
+            OSS_V2_URL, bucket_key, object_name, new_object_name
+        )
+        data, _ = self.session.request("put", url, headers=self.auth.header)
         return data
