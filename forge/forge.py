@@ -94,7 +94,7 @@ class ForgeApp(ForgeBase):
         self.hubs = self.api.dm.get_hubs().get("data")
 
     @_validate_hub
-    def get_projects(self, source="all", include_app=True):
+    def get_projects(self, source="all"):
         """
         Get all projects and sets the self.projects attribute
         Kwargs:
@@ -108,8 +108,6 @@ class ForgeApp(ForgeBase):
                 ...
             }
         """
-        app = self if include_app else None
-
         self.projects = []
         self._project_indices_by_id = {}
         self._project_indices_by_name = {}
@@ -128,7 +126,7 @@ class ForgeApp(ForgeBase):
                             project["attributes"]["name"],
                             project["id"][2:],
                             data=project,
-                            app=app,
+                            app=self,
                         )
                     )
 
@@ -148,7 +146,7 @@ class ForgeApp(ForgeBase):
                             project["attributes"]["name"],
                             project["id"][2:],
                             data=project,
-                            app=app,
+                            app=self,
                         )
                     )
 
@@ -175,7 +173,7 @@ class ForgeApp(ForgeBase):
                                 project["name"],
                                 project["id"],
                                 data=project,
-                                app=app,
+                                app=self,
                             )
                         )
                         self._project_indices_by_id[project["id"]] = (
@@ -245,8 +243,16 @@ class ForgeApp(ForgeBase):
         if key.lower() not in ("name", "id"):
             raise ValueError()
 
-        if not getattr(self, "projects", None):
+        if key == "name" and not getattr(self, "projects", None):
             self.get_projects()
+        elif key == "id" and not getattr(self, "projects", None):
+            project = self.api.dm.get_project(value, x_user_id=self.x_user_id)
+            return Project(
+                project["data"]["attributes"]["name"],
+                project["data"]["id"][2:],
+                data=project["data"],
+                app=self,
+            )
 
         try:
             if key.lower() == "name":
@@ -274,7 +280,7 @@ class ForgeApp(ForgeBase):
             self.logger.warning("Company: {} not found".format(name))
 
 
-class Project(object):
+class Project(ForgeBase):
     def __init__(
         self,
         name,
@@ -362,21 +368,6 @@ class Project(object):
                 self._data["admin"] = data
             elif "attributes" in data:
                 self._data["docs"] = data
-
-    @property
-    def x_user_id(self):
-        if getattr(self, "_x_user_id", None):
-            return self._x_user_id
-
-    @x_user_id.setter
-    def x_user_id(self, x_user_id):
-        """ """
-        if not (isinstance(x_user_id, str)):
-            raise TypeError("x_user_id must be a string")
-        elif not len(x_user_id) == 12:
-            raise ValueError("x_user_id must be a user UID")
-        else:
-            self._x_user_id = x_user_id
 
     @_validate_app
     @_validate_bim360_hub
@@ -549,8 +540,8 @@ class Content(object):
     def extension_type(self, extension_type):
         self._extension_type = extension_type
         self.deleted = extension_type in (
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["deleted"],
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["Deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["Deleted"],
         )
 
     @property
@@ -744,7 +735,14 @@ class Folder(Content):
         )
 
     @Content._validate_project
-    def add_item(self, name, storage_id=None, obj_bytes=None):
+    def add_item(
+        self,
+        name,
+        storage_id=None,
+        obj_bytes=None,
+        item_extension_type=None,
+        version_extension_type=None,
+    ):
         """
         name include extension
         """
@@ -762,6 +760,8 @@ class Folder(Content):
             self.id,
             storage_id,
             name,
+            item_extension_type=item_extension_type,
+            version_extension_type=version_extension_type,
             x_user_id=self.project.x_user_id,
         )
 
@@ -770,7 +770,7 @@ class Folder(Content):
                 item["data"]["attributes"]["displayName"],
                 item["data"]["id"],
                 extension_type=item["data"]["attributes"]["extension"]["type"],
-                data=item,
+                data=item["data"],
                 project=self.project,
                 host=self,
             )
@@ -858,8 +858,8 @@ class Item(Content):
         self.deleted = self.metadata["included"][0]["attributes"]["extension"][
             "type"
         ] in (
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["deleted"],
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["Deleted"],
+            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["Deleted"],
         )
 
         try:
@@ -875,7 +875,13 @@ class Item(Content):
 
     @Content._validate_project
     @Content._validate_host
-    def add_version(self, name, storage_id=None, obj_bytes=None):
+    def add_version(
+        self,
+        name,
+        storage_id=None,
+        obj_bytes=None,
+        version_extension_type=None,
+    ):
         """
         name include extension
         """
@@ -893,8 +899,14 @@ class Item(Content):
             storage_id,
             self.id,
             name,
+            version_extension_type=version_extension_type,
             x_user_id=self.project.x_user_id,
         )
+
+        # TODO - Marker
+        # from .utils import pretty_print
+
+        # pretty_print(version)
 
         self.versions.append(
             Version(
@@ -904,7 +916,7 @@ class Item(Content):
                     "type"
                 ],
                 item=self,
-                data=version,
+                data=version["data"],
             )
         )
 
@@ -1103,7 +1115,7 @@ class Version(Content):
         # find item to add version
         target_item = target_item or target_host.find(self.item.name)
 
-        if not target_item and (not force_create or self.number != 1):
+        if not target_item and (not force_create and self.number != 1):
             self.item.project.app.logger.warning(
                 "Couldn't add Version: {} of Item: '{}' because no Item found".format(  # noqa: E501
                     self.number, self.item.name
@@ -1171,10 +1183,33 @@ class Version(Content):
 
         pbar.close()
 
+        version_extension_type = ForgeBase._convert_extension_type(
+            self.extension_type, target_host.project.app.hub_type
+        )
+
         if force_create or self.number == 1:
-            target_host.add_item(self.item.name, storage_id=tg_storage_id)
+            item_extension_type = ForgeBase._convert_extension_type(
+                self.item.extension_type, target_host.project.app.hub_type
+            )
+            target_host.add_item(
+                self.item.name,
+                storage_id=tg_storage_id,
+                item_extension_type=item_extension_type,
+                version_extension_type=version_extension_type,
+            )
         else:
-            target_item.add_version(self.item.name, storage_id=tg_storage_id)
+            # TODO - Marker
+            # print(self.item.name)
+            # print(tg_storage_id)
+            # print(version_extension_type)
+            # print(target_item.project.name)
+            # print(target_item.project.id)
+            # print(target_item.id)
+            target_item.add_version(
+                self.item.name,
+                storage_id=tg_storage_id,
+                version_extension_type=version_extension_type,
+            )
 
         self.item.project.app.logger.info(
             "Finished transfer of: '{}' version: '{}'".format(
