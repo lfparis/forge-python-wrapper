@@ -418,7 +418,6 @@ class Project(ForgeBase):
                 extension_type=folder["attributes"]["extension"]["type"],
                 data=folder,
                 project=self,
-                host=None,
             )
             for folder in data
         ]
@@ -484,8 +483,8 @@ class Project(ForgeBase):
         )
 
     def find(self, value, key="name"):
-        """key = name or id"""
-        if key.lower() not in ("name", "id"):
+        """key = name or id or path"""
+        if key.lower() not in ("name", "id", "path"):
             raise ValueError()
 
         if not getattr(self, "top_folders", None):
@@ -526,10 +525,12 @@ class Content(object):
         self.id = content_id
         self.extension_type = extension_type
         self.data = data
+        self.path = "/{}".format(self.name)
         if project:
             self.project = project
         if host:
             self.host = host
+            self.path = "{}{}".format(host.path, self.path)
 
     @property
     def extension_type(self):
@@ -806,8 +807,8 @@ class Folder(Content):
             return item
 
     def find(self, value, key="name", shallow=True):
-        """key = name or id"""
-        if key.lower() not in ("name", "id"):
+        """key = name or id or path"""
+        if key.lower() not in ("name", "id", "path"):
             raise ValueError()
 
         if not self.contents:
