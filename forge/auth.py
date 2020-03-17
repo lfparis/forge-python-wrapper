@@ -115,28 +115,36 @@ class ForgeAuth(ForgeBase):
         url = self._compose_url(url, params)
 
         try:
-
-            if platform.system() == "Windows":
-                chrome_driver_path = os.path.normpath(
-                    os.path.join(
-                        os.path.join(__file__, os.pardir),
-                        r"assets\chromedriver\chromedriver.exe",
+            chrome_driver_path = os.environ.get("CHROMEDRIVER_PATH")
+            if not chrome_driver_path:
+                if platform.system() == "Windows":
+                    chrome_driver_path = os.path.normpath(
+                        os.path.join(
+                            os.path.join(__file__, os.pardir),
+                            r"assets\chromedriver\chromedriver.exe",
+                        )
                     )
-                )
-            else:
-                chrome_driver_path = os.path.normpath(
-                    os.path.join(
-                        os.path.join(__file__, os.pardir),
-                        "assets/chromedriver/chromedriver",
+                else:
+                    chrome_driver_path = os.path.normpath(
+                        os.path.join(
+                            os.path.join(__file__, os.pardir),
+                            "assets/chromedriver/chromedriver",
+                        )
                     )
-                )
-                os.environ["PATH"] += os.pathsep + os.pathsep.join(
-                    [chrome_driver_path]
-                )
+                    os.environ["PATH"] += os.pathsep + os.pathsep.join(
+                        [chrome_driver_path]
+                    )
 
             chrome_options = Options()
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--no-sandbox")
+
+            google_chrome_path = os.environ.get("GOOGLE_CHROME_BIN")
+            if google_chrome_path:
+                chrome_options.binary_location = google_chrome_path
+
             driver = webdriver.Chrome(
                 executable_path=chrome_driver_path,
                 chrome_options=chrome_options,
