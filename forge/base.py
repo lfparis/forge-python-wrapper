@@ -71,44 +71,46 @@ class ForgeBase(object):
 
     TYPES = {
         NAMESPACES["a."]: {
-            "hubs": "hubs:{}:Hub".format(NAMESPACES["a."]),
-            "items": {"file": "items:{}:File".format(NAMESPACES["a."])},
-            "folders": "folders:{}:Folder".format(NAMESPACES["a."]),
+            "hubs": {"Hub": "hubs:{}:Hub".format(NAMESPACES["a."])},
+            "items": {"File": "items:{}:File".format(NAMESPACES["a."])},
+            "folders": {
+                "Folder": "folders:{}:Folder".format(NAMESPACES["a."])
+            },
             "versions": {
-                "file": "versions:{}:File".format(NAMESPACES["a."]),
-                "composite_design": "versions:autodesk.a360:CompositeDesign",
-                "deleted": "versions:{}:Deleted".format(NAMESPACES["a."]),
-            },
-            "commands": {
-                "get_publish_model_job": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
-                    NAMESPACES["b."]
+                "File": "versions:{}:File".format(NAMESPACES["a."]),
+                "CompositeDesign": "versions:{}:CompositeDesign".format(
+                    NAMESPACES["a360"]
                 ),
-                "publish_model": "commands:{}:C4RModelPublish".format(
-                    NAMESPACES["b."]
-                ),
+                "Deleted": "versions:{}:Deleted".format(NAMESPACES["a."]),
             },
+            "commands": None,
             "derived": None,
             "xrefs": None,
             "auxiliary": None,
             "dependencies": None,
         },
         NAMESPACES["b."]: {
-            "hubs": "hubs:{}:Account".format(NAMESPACES["b."]),
+            "hubs": {"Hub": "hubs:{}:Account".format(NAMESPACES["b."])},
             "items": {
-                "file": "items:{}:File".format(NAMESPACES["b."]),
-                "c4rmodel": "items:{}:C4RModel​".format(NAMESPACES["b."]),
+                "File": "items:{}:File".format(NAMESPACES["b."]),
+                "C4RModel​": "items:{}:C4RModel​".format(NAMESPACES["b."]),
             },
-            "folders": "folders:{}:Folder".format(NAMESPACES["b."]),
+            "folders": {
+                "Folder": "folders:{}:Folder".format(NAMESPACES["b."])
+            },
             "versions": {
-                "file": "versions:{}:File".format(NAMESPACES["b."]),
-                "c4rmodel": "versions:{}:C4RModel​".format(NAMESPACES["b."]),
-                "deleted": "versions:{}:Deleted".format(NAMESPACES["b."]),
+                "File": "versions:{}:File".format(NAMESPACES["b."]),
+                # "CompositeDesign": "versions:{}:C4RModel​".format(
+                #     NAMESPACES["b."]
+                # ),
+                "C4RModel​": "versions:{}:C4RModel​".format(NAMESPACES["b."]),
+                "Deleted": "versions:{}:Deleted".format(NAMESPACES["b."]),
             },
             "commands": {
-                "get_publish_model_job": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
+                "C4RModelGetPublishJob": "commands:{}:C4RModelGetPublishJob".format(  # noqa:E501
                     NAMESPACES["b."]
                 ),
-                "publish_model": "commands:{}:C4RModelPublish".format(
+                "C4RModelPublish": "commands:{}:C4RModelPublish".format(
                     NAMESPACES["b."]
                 ),
             },
@@ -163,6 +165,34 @@ class ForgeBase(object):
 
         return params
 
+    @staticmethod
+    def _validate_extension_type(extension_type):
+        assert isinstance(
+            extension_type, str
+        ), "extension_type must be a string"
+
+        try:
+            _, namespace, _ = extension_type.split(":")
+        except ValueError:
+            raise ValueError(
+                "Invalid extension_type: {}".format(
+                    "Expecting a string in the format '<base type>:<namespace>:<extension_type>'",  # noqa: E501
+                )
+            ) from None
+
+    @staticmethod
+    def _convert_extension_type(extension_type, target_namespace):
+        ForgeBase._validate_extension_type(extension_type)
+        base_type, namespace, ext_type = extension_type.split(":")
+        if target_namespace == namespace:
+            return extension_type
+        else:
+            # TODO - CompositeDesign to C4R Conversion
+            try:
+                return ForgeBase.TYPES[target_namespace][base_type][ext_type]
+            except Exception:
+                return
+
     def _validate_token(func):
         def inner(self, *args, **kwargs):
             now = datetime.now()
@@ -173,6 +203,21 @@ class ForgeBase(object):
             return func(self, *args, **kwargs)
 
         return inner
+
+    @property
+    def x_user_id(self):
+        if getattr(self, "_x_user_id", None):
+            return self._x_user_id
+
+    @x_user_id.setter
+    def x_user_id(self, x_user_id):
+        """ """
+        if not (isinstance(x_user_id, str)):
+            raise TypeError("x_user_id must be a string")
+        elif not len(x_user_id) == 12:
+            raise ValueError("x_user_id must be a user UID")
+        else:
+            self._x_user_id = x_user_id
 
     @property
     def hub_id(self):
