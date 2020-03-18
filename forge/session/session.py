@@ -119,6 +119,7 @@ class Session(object):
         """  # noqa:E501
         try:
             self.session = _Session()
+            self.session.trust_env = False
             if base_url:
                 adapter = HTTPAdapter(max_retries=max_retries)
                 self.session.mount(base_url, adapter)
