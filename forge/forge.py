@@ -189,6 +189,20 @@ class ForgeApp(ForgeBase):
                     "Failed to get projects. The BIM 360 API only supports 2-legged access tokens"  # noqa:E501
                 )
 
+    @_validate_hub
+    def get_project(self, project_id):
+        if project_id[:2] not in self.NAMESPACES:
+            project_id = "{}{}".format(self.hub_id[:2], project_id)
+
+        project = self.api.dm.get_project(project_id, x_user_id=self.x_user_id)
+        if project.get("data"):
+            return Project(
+                project["data"]["attributes"]["name"],
+                project["data"]["id"][2:],
+                data=project["data"],
+                app=self,
+            )
+
     @_validate_bim360_hub
     def get_users(self):
         self.users = self.api.hq.get_users()
@@ -246,13 +260,7 @@ class ForgeApp(ForgeBase):
         if key == "name" and not getattr(self, "projects", None):
             self.get_projects()
         elif key == "id" and not getattr(self, "projects", None):
-            project = self.api.dm.get_project(value, x_user_id=self.x_user_id)
-            return Project(
-                project["data"]["attributes"]["name"],
-                project["data"]["id"][2:],
-                data=project["data"],
-                app=self,
-            )
+            return self.get_project(value)
 
         try:
             if key.lower() == "name":
