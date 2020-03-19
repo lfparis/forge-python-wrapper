@@ -233,7 +233,7 @@ class ForgeBase(object):
             raise TypeError("Hub ID must be a string")
         else:
             self._hub_id = val
-            self.hub_type = ForgeBase.NAMESPACES.get(val[0:2])
+            self.hub_type = ForgeBase.NAMESPACES.get(val[:2])
             self.account_id = val.split(".")[-1]
             if not self.hub_type:
                 raise ValueError("Invalid Hub ID")
