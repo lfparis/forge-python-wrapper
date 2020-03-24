@@ -79,6 +79,13 @@ class ForgeApp(ForgeBase):
 
         return inner
 
+    @_validate_bim360_hub
+    def _get_project_admin_data(self, project_id):
+        if project_id[:2] in self.NAMESPACES:
+            project_id = project_id[2:]
+
+        return self.api.hq.get_project(project_id)
+
     @property
     def hub_id(self):
         if getattr(self, "_hub_id", None):
@@ -196,12 +203,17 @@ class ForgeApp(ForgeBase):
 
         project = self.api.dm.get_project(project_id, x_user_id=self.x_user_id)
         if project.get("data"):
-            return Project(
+            pj = Project(
                 project["data"]["attributes"]["name"],
                 project["data"]["id"][2:],
                 data=project["data"],
                 app=self,
             )
+            if self.hub_id[:2] == "b." and not self.auth.three_legged:
+                admin_data = self._get_project_admin_data(project_id[2:])
+                if admin_data:
+                    pj.data = admin_data
+            return pj
 
     @_validate_bim360_hub
     def get_users(self):
@@ -209,6 +221,10 @@ class ForgeApp(ForgeBase):
         self._user_indices_by_email = {
             user["email"]: i for i, user in enumerate(self.users)
         }
+
+    @_validate_hub
+    def get_user(self, user_id):
+        return self.api.hq.get_user(user_id)
 
     @_validate_bim360_hub
     def get_companies(self):
@@ -254,6 +270,8 @@ class ForgeApp(ForgeBase):
 
     def find_project(self, value, key="name"):
         """key = name or id"""
+        if not value:
+            return
         if key.lower() not in ("name", "id"):
             raise ValueError()
 
@@ -270,13 +288,22 @@ class ForgeApp(ForgeBase):
         except KeyError:
             self.logger.warning("Project {}: {} not found".format(key, value))
 
-    def find_user(self, email):
-        if not getattr(self, "_user_indices_by_email", None):
-            self.get_users()
-        try:
-            return self.users[self._user_indices_by_email[email]]
-        except KeyError:
-            self.logger.warning("User email: {} not found".format(email))
+    def find_user(self, value, key="name"):
+        """key = name or email or id"""
+        if not value:
+            return
+
+        if key.lower() not in ("name", "id", "email"):
+            raise ValueError()
+
+        if key.lower() == "id":
+            return self.get_user(value)
+        else:
+            params = {key.lower(): value}
+            try:
+                return self.api.hq.get_users_search(**params)[0]
+            except IndexError:
+                self.logger.warning("User {}: {} not found".format(key, value))
 
     def find_company(self, name):
         if not getattr(self, "_company_indices_by_name", None):
@@ -644,6 +671,7 @@ class Folder(Content):
             x_user_id=self.project.x_user_id,
         )
 
+        self.contents = []
         for content in contents:
             if content["type"] == "items":
                 self.contents.append(
@@ -919,6 +947,7 @@ class Item(Content):
 
         self.versions.append(
             Version(
+                version["data"]["attributes"]["name"],
                 int(version["data"]["attributes"]["versionNumber"]),
                 version["data"]["id"],
                 extension_type=version["data"]["attributes"]["extension"][
@@ -933,6 +962,7 @@ class Item(Content):
     def get_versions(self):
         self.versions = [
             Version(
+                version["attributes"]["name"],
                 int(version["attributes"]["versionNumber"]),
                 version["id"],
                 extension_type=version["attributes"]["extension"]["type"],
@@ -1020,8 +1050,15 @@ class Item(Content):
 
 class Version(Content):
     def __init__(
-        self, number, version_id, extension_type=None, item=None, data=None
+        self,
+        name,
+        number,
+        version_id,
+        extension_type=None,
+        item=None,
+        data=None,
     ):
+        self.name = name
         self.number = number
         self.id = version_id
         self.extension_type = extension_type
@@ -1066,6 +1103,8 @@ class Version(Content):
             self.extension_type = self.metadata["data"]["attributes"][
                 "extension"
             ]["type"]
+        if self.name is None:
+            self.name = self.metadata["data"]["attributes"]["name"]
 
         try:
             self.storage_id = self.metadata["data"]["relationships"][
@@ -1077,7 +1116,10 @@ class Version(Content):
         except KeyError:
             self.storage_id = None
 
-        self.file_size = self.metadata["data"]["attributes"]["storageSize"]
+        try:
+            self.file_size = self.metadata["data"]["attributes"]["storageSize"]
+        except KeyError:
+            self.file_size = -1
 
     @_validate_item
     def get_details(self):
@@ -1122,12 +1164,16 @@ class Version(Content):
             return
 
         # find item to add version
-        target_item = target_item or target_host.find(self.item.name)
+        target_item = (
+            target_item
+            or target_host.find(self.name)
+            or target_host.find(self.item.name)
+        )
 
         if not target_item and (not force_create and self.number != 1):
             self.item.project.app.logger.warning(
                 "Couldn't add Version: {} of Item: '{}' because no Item found".format(  # noqa: E501
-                    self.number, self.item.name
+                    self.number, self.name
                 )
             )
             return
@@ -1137,24 +1183,24 @@ class Version(Content):
             if len(target_item.versions) == self.number:
                 self.item.project.app.logger.warning(
                     "Couldn't add Version: {} of Item: '{}' because Version already exists".format(  # noqa: E501
-                        self.number, self.item.name
+                        self.number, self.name
                     )
                 )
                 return
             elif len(target_item.versions) != self.number - 1:
                 self.item.project.app.logger.warning(
                     "Couldn't add Version: {} of Item: '{}' because Item has {} versions".format(  # noqa: E501
-                        self.number, self.item.name, len(target_item.versions)
+                        self.number, self.name, len(target_item.versions)
                     )
                 )
                 return
 
-        tg_storage_id = target_host._add_storage(self.item.name).get("id")
+        tg_storage_id = target_host._add_storage(self.name).get("id")
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
 
         self.item.project.app.logger.info(
             "Beginning transfer of: '{}' - version: {}".format(
-                self.item.name, self.number
+                self.name, self.number
             )
         )
 
@@ -1162,7 +1208,7 @@ class Version(Content):
             total=self.storage_size,
             unit="iB",
             unit_scale=True,
-            desc="Transferring - {}".format(self.item.name),
+            desc="Transferring - {}".format(self.name),
         )
 
         data_left = self.storage_size
@@ -1201,21 +1247,14 @@ class Version(Content):
                 self.item.extension_type, target_host.project.app.hub_type
             )
             target_host.add_item(
-                self.item.name,
+                self.name,
                 storage_id=tg_storage_id,
                 item_extension_type=item_extension_type,
                 version_extension_type=version_extension_type,
             )
         else:
-            # TODO - Marker
-            # print(self.item.name)
-            # print(tg_storage_id)
-            # print(version_extension_type)
-            # print(target_item.project.name)
-            # print(target_item.project.id)
-            # print(target_item.id)
             target_item.add_version(
-                self.item.name,
+                self.name,
                 storage_id=tg_storage_id,
                 version_extension_type=version_extension_type,
             )
