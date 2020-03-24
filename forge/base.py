@@ -100,9 +100,7 @@ class ForgeBase(object):
             },
             "versions": {
                 "File": "versions:{}:File".format(NAMESPACES["b."]),
-                # "CompositeDesign": "versions:{}:C4RModel​".format(
-                #     NAMESPACES["b."]
-                # ),
+                "CompositeDesign": "versions:{}:File".format(NAMESPACES["b."]),
                 "C4RModel​": "versions:{}:C4RModel​".format(NAMESPACES["b."]),
                 "Deleted": "versions:{}:Deleted".format(NAMESPACES["b."]),
             },
