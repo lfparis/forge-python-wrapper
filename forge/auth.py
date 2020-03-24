@@ -5,8 +5,9 @@ import platform
 import sys
 
 from datetime import datetime
-from selenium import webdriver
+from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 
 from .base import ForgeBase, Logger
 from .urls import AUTH_V1_URL
@@ -145,24 +146,26 @@ class ForgeAuth(ForgeBase):
             if google_chrome_path:
                 chrome_options.binary_location = google_chrome_path
 
-            driver = webdriver.Chrome(
+            driver = Chrome(
                 executable_path=chrome_driver_path,
                 chrome_options=chrome_options,
             )
             driver.implicitly_wait(15)
             driver.get(url)
 
-            user_name = driver.find_element_by_id("userName")
+            user_name = driver.find_element(by=By.ID, value="userName")
             user_name.send_keys(self.username)
-            verify_user_btn = driver.find_element_by_id("verify_user_btn")
+            verify_user_btn = driver.find_element(
+                by=By.ID, value="verify_user_btn"
+            )
             verify_user_btn.click()
 
-            pwd = driver.find_element_by_id("password")
+            pwd = driver.find_element(by=By.ID, value="password")
             pwd.send_keys(self.password)
-            submit_btn = driver.find_element_by_id("btnSubmit")
+            submit_btn = driver.find_element(by=By.ID, value="btnSubmit")
             submit_btn.click()
 
-            allow_btn = driver.find_element_by_id("allow_btn")
+            allow_btn = driver.find_element(by=By.ID, value="allow_btn")
             allow_btn.click()
 
             return_url = driver.current_url
