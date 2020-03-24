@@ -53,9 +53,55 @@ class HQ(ForgeBase):
         return self._get_iter(url, "users", headers=self.auth.header)
 
     @ForgeBase._validate_token
+    def get_users_search(
+        self,
+        name=None,
+        email=None,
+        company_name=None,
+        partial=True,
+        limit=None,
+        sort=None,
+        field=None,
+    ):
+        """
+        https://forge.autodesk.com/en/docs/bim360/v1/reference/http/users-search-GET/
+        """  # noqa: E501
+        params = {k: v for k, v in locals().items() if v and k != "self"}
+        url = "{}/accounts/{}/users/search".format(HQ_V1_URL, self.account_id)
+        return self._get_iter(
+            url, "users", headers=self.auth.header, params=params
+        )
+
+    @ForgeBase._validate_token
+    def get_user(self, user_id):
+        url = "{}/accounts/{}/users/{}".format(
+            HQ_V1_URL, self.account_id, user_id
+        )
+        data, _ = self.session.request(
+            "get",
+            url,
+            headers=self.auth.header,
+            message="user '{}'".format(user_id),
+        )
+        return data
+
+    @ForgeBase._validate_token
     def get_projects(self):
         url = "{}/accounts/{}/projects".format(HQ_V1_URL, self.account_id)
         return self._get_iter(url, "projects", headers=self.auth.header)
+
+    @ForgeBase._validate_token
+    def get_project(self, project_id):
+        url = "{}/accounts/{}/projects/{}".format(
+            HQ_V1_URL, self.account_id, project_id
+        )
+        data, _ = self.session.request(
+            "get",
+            url,
+            headers=self.auth.header,
+            message="project '{}'".format(project_id),
+        )
+        return data
 
     @ForgeBase._validate_token
     def get_companies(self):
