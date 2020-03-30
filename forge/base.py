@@ -203,6 +203,25 @@ class ForgeBase(object):
         return inner
 
     @property
+    def log_level(self):
+        if getattr(self, "_log_level", None):
+            return self._log_level
+
+    @log_level.setter
+    def log_level(self, log_level):
+        """ """
+        if not (isinstance(log_level, str)):
+            raise TypeError("log_level must be a string")
+        # elif log_level not in(x_user_id) == 12:
+        #     raise ValueError("x_user_id must be a user UID")
+        else:
+            self._log_level = log_level
+            if getattr(self, "logger", None):
+                Logger.set_level(self.logger, log_level)
+            if getattr(self, "session", None):
+                Logger.set_level(ForgeBase.session.logger, log_level)
+
+    @property
     def x_user_id(self):
         if getattr(self, "_x_user_id", None):
             return self._x_user_id

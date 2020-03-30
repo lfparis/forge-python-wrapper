@@ -46,10 +46,12 @@ logger = Logger.start(__name__)
 
 
 class Request(object):
-    def __init__(self, request, stream=False, message=""):
+    def __init__(self, request, stream=False, message="", logger=None):
         self.response = request
         self.stream = stream
         self.message = message
+        if logger:
+            self.logger = logger
 
     @property
     def data(self):
@@ -75,6 +77,7 @@ class Request(object):
 
         if not self._success:
             self._log_error()
+            pass
 
         return self._success
 
@@ -104,19 +107,24 @@ class Request(object):
             else:
                 error_msg = self.response.status_code
 
-        logger.warning(
+        self.logger.debug(
             "Failed to {} - ERROR: {}".format(self.message, error_msg)
         )
 
 
 class Session(object):
-    def __init__(self, timeout=2, max_retries=3, base_url=None):
+    def __init__(
+        self, timeout=2, max_retries=3, base_url=None, log_level="info"
+    ):
         """
         Kwargs:
             timeout (``int``, default=2): maximum time for one request in minutes.
             max_retries (``int``, default=3): maximum number of retries.
             base_url (``str``, optional): Base URL for this Session
         """  # noqa:E501
+        self.logger = logger
+        self.log_level = log_level
+
         try:
             self.session = _Session()
             self.session.trust_env = False
@@ -169,6 +177,23 @@ class Session(object):
                 urlencode += "&"
             count -= 1
         return urlencode
+
+    @property
+    def log_level(self):
+        if getattr(self, "_log_level", None):
+            return self._log_level
+
+    @log_level.setter
+    def log_level(self, log_level):
+        """ """
+        if not (isinstance(log_level, str)):
+            raise TypeError("log_level must be a string")
+        # elif log_level not in(x_user_id) == 12:
+        #     raise ValueError("x_user_id must be a user UID")
+        else:
+            self._log_level = log_level
+            if getattr(self, "logger", None):
+                Logger.set_level(self.logger, log_level)
 
     def _request_cpython(self, *args, **kwargs):
         method, url = args
@@ -329,6 +354,7 @@ class Session(object):
                     stream=stream,
                 ),
                 message=message,
+                logger=self.logger,
             )
             return response.data, response.success
 

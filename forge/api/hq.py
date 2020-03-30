@@ -149,7 +149,7 @@ class HQ(ForgeBase):
             self.logger.info("Added: {}".format(name))
             return data
         else:
-            self.logger.warning("Failed to add: {}".format(name))
+            self.logger.debug("Failed to add: {}".format(name))
 
     @ForgeBase._validate_token
     def patch_project(
@@ -260,7 +260,7 @@ class HQ(ForgeBase):
                             )
                         )
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.debug(
                             "{}: Added user - Code Error: {}".format(
                                 project_name or project_id, e
                             )
@@ -278,7 +278,7 @@ class HQ(ForgeBase):
                             [error["message"] for error in item["errors"]]
                         )
 
-                        self.logger.warning(
+                        self.logger.debug(
                             "{}: coudn't add {} as a {} because: {}".format(
                                 project_name or project_id,
                                 email,
@@ -287,7 +287,7 @@ class HQ(ForgeBase):
                             )
                         )
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.debug(
                             "{}: coudn't add user because: {}".format(
                                 project_name or project_id, e
                             )

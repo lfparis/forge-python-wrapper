@@ -8,8 +8,11 @@ from tqdm import tqdm
 from .api import ForgeApi
 from .auth import ForgeAuth
 from .base import ForgeBase, Logger
+from .urls import OSS_V2_URL
 
 logger = Logger.start(__name__)
+
+# TODO - Error Logging and Level Consistency
 
 
 class ForgeApp(ForgeBase):
@@ -28,6 +31,9 @@ class ForgeApp(ForgeBase):
     ):
         """
         """
+        self.logger = logger
+        self.log_level = log_level
+
         self.auth = ForgeAuth(
             client_id=client_id,
             client_secret=client_secret,
@@ -40,13 +46,10 @@ class ForgeApp(ForgeBase):
             log_level=log_level,
         )
 
-        self.api = ForgeApi(auth=self.auth, log_level=log_level)
+        self.api = ForgeApi(auth=self.auth, log_level=self.log_level)
 
         if hub_id or os.environ.get("FORGE_HUB_ID"):
             self.hub_id = hub_id or os.environ.get("FORGE_HUB_ID")
-
-        self.logger = logger
-        Logger.set_level(self.logger, log_level)
 
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(
@@ -192,7 +195,7 @@ class ForgeApp(ForgeBase):
                         )
 
             elif source.lower() in ("all", "admin"):
-                self.logger.warning(
+                self.logger.debug(
                     "Failed to get projects. The BIM 360 API only supports 2-legged access tokens"  # noqa:E501
                 )
 
@@ -286,7 +289,7 @@ class ForgeApp(ForgeBase):
             elif key.lower() == "id":
                 return self.projects[self._project_indices_by_id[value]]
         except KeyError:
-            self.logger.warning("Project {}: {} not found".format(key, value))
+            self.logger.debug("Project {}: {} not found".format(key, value))
 
     def find_user(self, value, key="name"):
         """key = name or email or id"""
@@ -303,7 +306,7 @@ class ForgeApp(ForgeBase):
             try:
                 return self.api.hq.get_users_search(**params)[0]
             except IndexError:
-                self.logger.warning("User {}: {} not found".format(key, value))
+                self.logger.debug("User {}: {} not found".format(key, value))
 
     def find_company(self, name):
         if not getattr(self, "_company_indices_by_name", None):
@@ -312,7 +315,7 @@ class ForgeApp(ForgeBase):
         try:
             return self.companies[self._company_indices_by_name[name]]
         except KeyError:
-            self.logger.warning("Company: {} not found".format(name))
+            self.logger.debug("Company: {} not found".format(name))
 
 
 class Project(ForgeBase):
@@ -533,7 +536,7 @@ class Project(ForgeBase):
                     if getattr(content, key, None) == value:
                         return content
 
-        self.app.logger.warning(
+        self.app.logger.debug(
             "{}: {} not found in '{}'".format(key, value, self.name)
         )
 
@@ -731,13 +734,13 @@ class Folder(Content):
                 else:
                     index = sub_folder_names.index(folder_name)
                     folder = self.contents[index]
-                    self.project.app.logger.warning(
+                    self.project.app.logger.debug(
                         "{}: folder '{}' already exists in '{}'".format(
                             self.project.name, folder_name, self.name
                         )
                     )
             except Exception as e:
-                self.project.app.logger.warning(
+                self.project.app.logger.debug(
                     "{}: couldn't add '{}' folder to '{}'".format(
                         self.name, folder_name, self.name
                     )
@@ -856,7 +859,7 @@ class Folder(Content):
             if getattr(content, key, None) == value:
                 return content
 
-        self.project.app.logger.warning(
+        self.project.app.logger.debug(
             "{}: {} not found in '{}'".format(key, value, self.name)
         )
 
@@ -1264,3 +1267,196 @@ class Version(Content):
                 self.item.name, self.number
             )
         )
+
+    @_validate_item
+    def transfer_remote(
+        self,
+        post_url,
+        callback_url,
+        target_host,
+        target_item=None,
+        chunk_size=100000000,
+        force_create=False,
+    ):
+        """
+        force_create to force create an item if item is not in target_host
+        """
+        self.get_details()
+
+        if not getattr(self, "storage_size", None):
+            self.item.project.app.logger.warning(
+                "Couldn't add Version: {} of Item: '{}', because no data was found".format(  # noqa: E501
+                    self.number, self.item.name
+                )
+            )
+            return
+
+        # find item to add version
+        target_item = (
+            target_item
+            or target_host.find(self.name)
+            or target_host.find(self.item.name)
+        )
+
+        if not target_item and (not force_create and self.number != 1):
+            self.item.project.app.logger.warning(
+                "Couldn't add Version: {} of Item: '{}' because no Item found".format(  # noqa: E501
+                    self.number, self.name
+                )
+            )
+            return
+
+        elif target_item:
+            target_item.get_versions()
+            if len(target_item.versions) == self.number:
+                self.item.project.app.logger.warning(
+                    "Couldn't add Version: {} of Item: '{}' because Version already exists".format(  # noqa: E501
+                        self.number, self.name
+                    )
+                )
+                return
+            elif len(target_item.versions) != self.number - 1:
+                self.item.project.app.logger.warning(
+                    "Couldn't add Version: {} of Item: '{}' because Item has {} versions".format(  # noqa: E501
+                        self.number, self.name, len(target_item.versions)
+                    )
+                )
+                return
+
+        tg_storage_id = target_host._add_storage(self.name).get("id")
+        tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
+
+        self.item.project.app.logger.info(
+            "Beginning transfer of: '{}' - version: {}".format(
+                self.name, self.number
+            )
+        )
+
+        with tqdm(
+            total=self.storage_size,
+            unit="iB",
+            unit_scale=True,
+            desc="Sending - {}".format(self.name),
+        ) as pbar:
+
+            data_left = self.storage_size
+            count = 0
+            while data_left > 0:
+                lower = count * chunk_size
+                upper = lower + chunk_size
+                if upper > self.storage_size:
+                    upper = self.storage_size
+                upper -= 1
+
+                source_headers = {"Range": "bytes={}-{}".format(lower, upper)}
+                source_headers.update(self.item.project.app.auth.header)
+
+                target_headers = {
+                    "Content-Length": str(self.storage_size),
+                    "Session-Id": "-811577637",
+                    "Content-Range": "bytes {}-{}/{}".format(
+                        lower, upper, self.storage_size
+                    ),
+                }
+                target_headers.update(target_host.project.app.auth.header)
+
+                body = {
+                    "name": self.name,
+                    "task_id": "12345",
+                    "uid": target_host.project.x_user_id,
+                    "source": {
+                        "url": "{}/buckets/{}/objects/{}".format(
+                            OSS_V2_URL, self.bucket_key, self.object_name
+                        ),
+                        "headers": source_headers,
+                        "method": "GET",
+                        "encoding": None,
+                    },
+                    "destination": {
+                        "url": "{}/buckets/{}/objects/{}/resumable".format(
+                            OSS_V2_URL, tg_bucket_key, tg_object_name
+                        ),
+                        "headers": target_headers,
+                        "method": "PUT",
+                        "encoding": None,
+                    },
+                }
+
+                headers = {"Content-Type": "application/json; charset=utf-8"}
+
+                data, _ = ForgeBase.session.request(
+                    "post", post_url, headers=headers, json_data=body
+                )
+
+                pbar.update(upper - lower + 1)
+                data_left -= chunk_size
+                count += 1
+                time.sleep(0.21)
+
+            pbar.desc = "Sent - {}".format(self.name)
+
+        Logger.set_level(ForgeBase.session.logger, "error")
+
+        estimate = self.storage_size / 20000000 + 1
+
+        with tqdm(
+            total=estimate,
+            unit="s",
+            unit_scale=True,
+            desc="Uploading - {}".format(self.name),
+        ) as pbar:
+            count = 0
+            while True:
+                count += 1
+                time.sleep(1)
+                pbar.update(1)
+                if estimate <= 5 or count % 5 == 0:
+                    details = self.item.project.app.api.dm.get_object_details(
+                        tg_bucket_key, tg_object_name
+                    )
+
+                    if isinstance(details, dict) and (
+                        "size" not in details
+                        or details["size"] != self.storage_size
+                    ):
+                        if count % 5 == 0 and pbar.n + 5 > pbar.total:
+                            pbar.total = pbar.n + 5
+                        elif estimate <= 5 and pbar.n + 1 > pbar.total:
+                            pbar.total = pbar.n + 1
+                        continue
+
+                    else:
+                        pbar.total = pbar.n
+                        pbar.desc = "Creating Item/Version - {}".format(
+                            self.name
+                        )
+                        version_ext_type = ForgeBase._convert_extension_type(
+                            self.extension_type,
+                            target_host.project.app.hub_type,
+                        )
+
+                        if force_create or self.number == 1:
+                            item_ext_type = ForgeBase._convert_extension_type(
+                                self.item.extension_type,
+                                target_host.project.app.hub_type,
+                            )
+                            target_host.add_item(
+                                self.name,
+                                storage_id=tg_storage_id,
+                                item_extension_type=item_ext_type,
+                                version_extension_type=version_ext_type,
+                            )
+                        else:
+                            target_item.add_version(
+                                self.name,
+                                storage_id=tg_storage_id,
+                                version_extension_type=version_ext_type,
+                            )
+                        break
+
+        self.item.project.app.logger.info(
+            "Finished transfer of: '{}' version: '{}'".format(
+                self.item.name, self.number
+            )
+        )
+        return

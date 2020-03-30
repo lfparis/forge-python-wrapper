@@ -431,7 +431,7 @@ class DM(ForgeBase):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name
         )
-        headers = self.auth.header
+        headers = {k: v for k, v in self.auth.header.items()}
         if byte_range:
             headers.update({"Range": "bytes={}-{}".format(*byte_range)})
         data, _ = self.session.request("get", url, headers=headers)
@@ -449,14 +449,20 @@ class DM(ForgeBase):
 
     @ForgeBase._validate_token
     def put_object_resumable(
-        self, bucket_key, object_name, object_bytes, total_size, byte_range
+        self,
+        bucket_key,
+        object_name,
+        object_bytes,
+        total_size,
+        byte_range,
+        session_id="-811577637",
     ):
         url = "{}/buckets/{}/objects/{}/resumable".format(
             OSS_V2_URL, bucket_key, object_name
         )
         headers = {
             "Content-Length": str(total_size),
-            "Session-Id": "-811577637",
+            "Session-Id": session_id,
             "Content-Range": "bytes {}-{}/{}".format(*byte_range, total_size),
         }
         headers.update(self.auth.header)
