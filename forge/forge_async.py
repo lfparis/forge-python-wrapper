@@ -7,6 +7,7 @@ from __future__ import absolute_import
 import os
 import time
 
+from aiohttp import ClientSession, TCPConnector
 from tqdm import tqdm
 
 from .api import ForgeApi
@@ -21,7 +22,7 @@ from .decorators import (
     _validate_project,
     _validate_x_user_id,
 )
-from .utils import pretty_print
+from .utils import HTTPSemaphore, pretty_print
 from .urls import OSS_V2_URL
 
 logger = Logger.start(__name__)
@@ -29,13 +30,14 @@ logger = Logger.start(__name__)
 # TODO - Error Logging and Level Consistency
 
 
-class ForgeApp(ForgeBase):
+class ForgeAppAsync(ForgeBase):
     def __init__(
         self,
         client_id=None,
         client_secret=None,
         scopes=None,
         hub_id=None,
+        asession=None,
         three_legged=False,
         grant_type="implicit",
         redirect_uri=None,
@@ -47,6 +49,8 @@ class ForgeApp(ForgeBase):
         """
         self.logger = logger
         self.log_level = log_level
+
+        self.asession = asession
 
         self.auth = ForgeAuth(
             client_id=client_id,
@@ -60,10 +64,17 @@ class ForgeApp(ForgeBase):
             log_level=log_level,
         )
 
-        self.api = ForgeApi(auth=self.auth, log_level=self.log_level)
+        self.api = ForgeApi(
+            auth=self.auth,
+            log_level=self.log_level,
+            async_apis=True,
+            asession=self.asession,
+        )
 
         if hub_id or os.environ.get("FORGE_HUB_ID"):
             self.hub_id = hub_id or os.environ.get("FORGE_HUB_ID")
+
+        self.sem = HTTPSemaphore(value=50, delay=0.06, size=10)
 
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(
@@ -71,11 +82,11 @@ class ForgeApp(ForgeBase):
         )
 
     @_validate_bim360_hub
-    def _get_project_admin_data(self, project_id):
+    async def _get_project_admin_data(self, project_id):
         if project_id[:2] in self.NAMESPACES:
             project_id = project_id[2:]
 
-        return self.api.hq.get_project(project_id)
+        return await self.api.hq.get_project(project_id)
 
     @property
     def hub_id(self):
@@ -91,11 +102,12 @@ class ForgeApp(ForgeBase):
             self.api.adm.hub_id = val
             self.api.ahq.hub_id = val
 
-    def get_hubs(self):
-        self.hubs = self.api.dm.get_hubs().get("data")
+    async def get_hubs(self):
+        hubs = await self.api.dm.get_hubs()
+        self.hubs = hubs.get("data")
 
     @_validate_hub
-    def get_projects(self, source="all"):
+    async def get_projects(self, source="all"):
         """
         Get all projects and sets the self.projects attribute
         Kwargs:
@@ -121,7 +133,8 @@ class ForgeApp(ForgeBase):
                     )
                 )
             else:
-                for project in self.api.dm.get_projects():
+                projects = await self.api.dm.get_projects()
+                for project in projects:
                     self.projects.append(
                         Project(
                             project["attributes"]["name"],
@@ -141,7 +154,8 @@ class ForgeApp(ForgeBase):
         elif self.hub_type == self.NAMESPACES["b."]:
 
             if source.lower() in ("all", "docs"):
-                for project in self.api.dm.get_projects():
+                projects = await self.api.dm.get_projects()
+                for project in projects:
                     self.projects.append(
                         Project(
                             project["attributes"]["name"],
@@ -163,7 +177,8 @@ class ForgeApp(ForgeBase):
                 and not self.auth.three_legged
             ):
 
-                for project in self.api.hq.get_projects():
+                projects = await self.api.hq.get_projects()
+                for project in projects:
                     if project["id"] in self._project_indices_by_id:
                         self.projects[
                             self._project_indices_by_id[project["id"]]
@@ -191,11 +206,13 @@ class ForgeApp(ForgeBase):
                 )
 
     @_validate_hub
-    def get_project(self, project_id):
+    async def get_project(self, project_id):
         if project_id[:2] not in self.NAMESPACES:
             project_id = "{}{}".format(self.hub_id[:2], project_id)
 
-        project = self.api.dm.get_project(project_id, x_user_id=self.x_user_id)
+        project = await self.api.dm.get_project(
+            project_id, x_user_id=self.x_user_id
+        )
         if project.get("data"):
             pj = Project(
                 project["data"]["attributes"]["name"],
@@ -204,31 +221,31 @@ class ForgeApp(ForgeBase):
                 app=self,
             )
             if self.hub_id[:2] == "b." and not self.auth.three_legged:
-                admin_data = self._get_project_admin_data(project_id[2:])
+                admin_data = await self._get_project_admin_data(project_id[2:])
                 if admin_data:
                     pj.data = admin_data
             return pj
 
     @_validate_bim360_hub
-    def get_users(self):
-        self.users = self.api.hq.get_users()
+    async def get_users(self):
+        self.users = await self.api.hq.get_users()
         self._user_indices_by_email = {
             user["email"]: i for i, user in enumerate(self.users)
         }
 
     @_validate_bim360_hub
-    def get_user(self, user_id):
-        return self.api.hq.get_user(user_id)
+    async def get_user(self, user_id):
+        return await self.api.hq.get_user(user_id)
 
     @_validate_bim360_hub
-    def get_companies(self):
-        self.companies = self.api.hq.get_companies()
+    async def get_companies(self):
+        self.companies = await self.api.hq.get_companies()
         self._company_indices_by_name = {
             company["name"]: i for i, company in enumerate(self.companies)
         }
 
     @_validate_bim360_hub
-    def add_project(
+    async def add_project(
         self,
         name,
         start_date=ForgeBase.TODAY_STRING,
@@ -242,7 +259,7 @@ class ForgeApp(ForgeBase):
             self._project_indices_by_name = {}
 
         if name not in self._project_indices_by_name:
-            project = self.api.hq.post_project(
+            project = await self.api.hq.post_project(
                 name,
                 start_date=start_date,
                 end_date=end_date,
@@ -262,7 +279,7 @@ class ForgeApp(ForgeBase):
                 )
                 return self.projects[-1]
 
-    def find_project(self, value, key="name"):
+    async def find_project(self, value, key="name"):
         """key = name or id"""
         if not value:
             return
@@ -270,9 +287,9 @@ class ForgeApp(ForgeBase):
             raise ValueError()
 
         if key == "name" and not getattr(self, "projects", None):
-            self.get_projects()
+            await self.get_projects()
         elif key == "id" and not getattr(self, "projects", None):
-            return self.get_project(value)
+            return await self.get_project(value)
 
         try:
             if key.lower() == "name":
@@ -282,7 +299,7 @@ class ForgeApp(ForgeBase):
         except KeyError:
             self.logger.debug("Project {}: {} not found".format(key, value))
 
-    def find_user(self, value, key="name"):
+    async def find_user(self, value, key="name"):
         """key = name or email or id"""
         if not value:
             return
@@ -291,17 +308,18 @@ class ForgeApp(ForgeBase):
             raise ValueError()
 
         if key.lower() == "id":
-            return self.get_user(value)
+            return await self.get_user(value)
         else:
             params = {key.lower(): value}
             try:
-                return self.api.hq.get_users_search(**params)[0]
+                users = await self.api.hq.get_users_search(**params)
+                return users[0]
             except IndexError:
                 self.logger.debug("User {}: {} not found".format(key, value))
 
-    def find_company(self, name):
+    async def find_company(self, name):
         if not getattr(self, "_company_indices_by_name", None):
-            self.get_companies()
+            await self.get_companies()
 
         try:
             return self.companies[self._company_indices_by_name[name]]
@@ -341,8 +359,8 @@ class Project(ForgeBase):
 
     @app.setter
     def app(self, app):
-        if not isinstance(app, ForgeApp):
-            raise TypeError("Project.app must be a ForgeApp")
+        if not isinstance(app, ForgeAppAsync):
+            raise TypeError("Project.app must be a ForgeAppAsync")
         elif not app.hub_id:
             raise AttributeError(
                 "A 'hub_id' attribute has not been defined in your app"
@@ -370,14 +388,14 @@ class Project(ForgeBase):
 
     @_validate_app
     @_validate_bim360_hub
-    def update(self, name=None, status=None):
+    async def update(self, name=None, status=None):
         if self.app.auth.three_legged:
             raise ValueError(
                 "The BIM 360 API only supports 2-legged access tokens"
             )
 
         if name or status:
-            project = self.app.api.hq.patch_project(
+            project = await self.app.api.hq.patch_project(
                 self.id["hq"], name=name, status=status, project_name=self.name
             )
 
@@ -392,19 +410,18 @@ class Project(ForgeBase):
                 self.data = project
 
     @_validate_app
-    def get_top_folders(self):
+    async def get_top_folders(self):
         data = []
         count = 0
         while not data:
             if count > 0:
                 time.sleep(5)
 
-            data = (
-                self.app.api.dm.get_top_folders(
-                    self.id["dm"], x_user_id=self.x_user_id
-                ).get("data")
-                or []
+            data = await self.app.api.dm.get_top_folders(
+                self.id["dm"], x_user_id=self.x_user_id
             )
+
+            folders = data.get("data") or []
 
             count += 1
             if count > 6:
@@ -418,7 +435,7 @@ class Project(ForgeBase):
                 data=folder,
                 project=self,
             )
-            for folder in data
+            for folder in folders
         ]
 
         if self.top_folders:
@@ -440,24 +457,24 @@ class Project(ForgeBase):
 
         return self.top_folders
 
-    def get_contents(self):
+    async def get_contents(self):
         if not getattr(self, "top_folders", None):
-            self.get_top_folders()
+            await self.get_top_folders()
 
         for folder in self.top_folders:
-            folder.get_contents()
+            await folder.get_contents()
 
     @_validate_app
     @_validate_bim360_hub
-    def get_roles(self):
-        self.roles = self.app.api.hq.get_project_roles(self.id["hq"])
+    async def get_roles(self):
+        self.roles = await self.app.api.hq.get_project_roles(self.id["hq"])
         return self.roles
 
     @_validate_app
     @_validate_bim360_hub
     @_validate_x_user_id
-    def add_users(self, users, access_level="user", role_id=None):
-        return self.app.api.hq.post_project_users(
+    async def add_users(self, users, access_level="user", role_id=None):
+        return await self.app.api.hq.post_project_users(
             self.id["hq"],
             users,
             access_level=access_level,
@@ -469,10 +486,10 @@ class Project(ForgeBase):
     @_validate_app
     @_validate_bim360_hub
     @_validate_x_user_id
-    def update_user(
+    async def update_user(
         self, user, company_id=None, role_id=None,
     ):
-        return self.app.api.hq.patch_project_user(
+        return await self.app.api.hq.patch_project_user(
             self.id["hq"],
             user,
             company_id=company_id,
@@ -481,19 +498,19 @@ class Project(ForgeBase):
             project_name=self.name,
         )
 
-    def find(self, value, key="name"):
+    async def find(self, value, key="name"):
         """key = name or id or path"""
         if key.lower() not in ("name", "id", "path"):
             raise ValueError()
 
         if not getattr(self, "top_folders", None):
-            self.get_contents()
+            await self.get_contents()
 
         for folder in self.top_folders:
             if getattr(folder, key, None) == value:
                 return folder
             else:
-                for content, _ in folder._iter_contents():
+                async for content, _ in folder._iter_contents():
                     if getattr(content, key, None) == value:
                         return content
 
@@ -501,13 +518,13 @@ class Project(ForgeBase):
             "{}: {} not found in '{}'".format(key, value, self.name)
         )
 
-    def walk(self):
+    async def walk(self):
         if not getattr(self, "top_folders", None):
-            self.get_contents()
+            await self.get_contents()
 
         for folder in self.top_folders:
             print(folder.name)
-            folder.walk(level=1)
+            await folder.walk(level=1)
 
 
 class Content(object):
@@ -540,8 +557,8 @@ class Content(object):
     def extension_type(self, extension_type):
         self._extension_type = extension_type
         self.deleted = extension_type in (
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["Deleted"],
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["Deleted"],
+            ForgeBase.TYPES[ForgeBase.NAMESPACES["a."]]["versions"]["Deleted"],
+            ForgeBase.TYPES[ForgeBase.NAMESPACES["b."]]["versions"]["Deleted"],
         )
 
     @property
@@ -597,18 +614,18 @@ class Folder(Content):
         self.type = "folders"
         self.contents = []
 
-    def _iter_contents(self, level=0):
+    async def _iter_contents(self, level=0):
         for content in self.contents:
             yield content, level
             if content.type == "folders":
-                for sub_content, sub_level in content._iter_contents(
+                async for sub_content, sub_level in content._iter_contents(
                     level=level + 1
                 ):
                     yield sub_content, sub_level
 
     @_validate_project
-    def get_contents(self):
-        contents = self.project.app.api.dm.get_folder_contents(
+    async def get_contents(self):
+        contents = await self.project.app.api.dm.get_folder_contents(
             self.project.id["dm"],
             self.id,
             include_hidden=self.project.include_hidden,
@@ -644,16 +661,16 @@ class Folder(Content):
                         host=self,
                     )
                 )
-                self.contents[-1].get_contents()
+                await self.contents[-1].get_contents()
 
         return self.contents
 
     @_validate_project
-    def add_sub_folder(self, folder_name):
+    async def add_sub_folder(self, folder_name):
         """
         """
         if not self.contents:
-            self.get_contents()
+            await self.get_contents()
 
         if self.contents:
             try:
@@ -664,14 +681,27 @@ class Folder(Content):
                 ]
 
                 if folder_name not in sub_folder_names:
-                    folder = self.project.app.api.dm.post_folder(
+                    folder = await self.project.app.api.dm.post_folder(
                         self.project.id["dm"],
                         self.id,
                         folder_name,
                         project_name=self.project.name,
                         x_user_id=self.project.x_user_id,
                     )
-                    self.get_contents()
+
+                    self.contents.append(
+                        Folder(
+                            folder["data"]["attributes"]["name"],
+                            folder["data"]["id"],
+                            extension_type=folder["data"]["attributes"][
+                                "extension"
+                            ]["type"],
+                            data=folder["data"],
+                            project=self.project,
+                            host=self,
+                        )
+                    )
+                    folder = self.contents[-1]
 
                 else:
                     index = sub_folder_names.index(folder_name)
@@ -689,35 +719,50 @@ class Folder(Content):
                 )
                 raise (e)
         else:
-            folder = self.project.app.api.dm.post_folder(
+            folder = await self.project.app.api.dm.post_folder(
                 self.project.id["dm"],
                 self.id,
                 folder_name,
                 project_name=self.project.name,
                 x_user_id=self.project.x_user_id,
             )
-            self.get_contents()
+            self.contents.append(
+                Folder(
+                    folder["data"]["attributes"]["name"],
+                    folder["data"]["id"],
+                    extension_type=folder["data"]["attributes"]["extension"][
+                        "type"
+                    ],
+                    data=folder["data"],
+                    project=self.project,
+                    host=self,
+                )
+            )
+            folder = self.contents[-1]
         return folder
 
     @_validate_project
-    def _add_storage(self, name):
-        return self.project.app.api.dm.post_storage(
+    async def _add_storage(self, name):
+        storage = await self.project.app.api.dm.post_storage(
             self.project.id["dm"],
             "folders",
             self.id,
             name,
             x_user_id=self.project.x_user_id,
-        ).get("data")
+        )
+        return storage.get("data")
 
+    # TODO - untested
     @_validate_project
-    def _upload_file(self, storage_id, obj_bytes):
+    async def _upload_file(self, storage_id, obj_bytes):
         bucket_key, object_name = self._unpack_storage_id(storage_id)
-        return self.project.app.api.dm.put_object(
+        return await self.project.app.api.dm.put_object(
             bucket_key, object_name, obj_bytes
         )
 
+    # TODO - untested
     @_validate_project
-    def add_item(
+    async def add_item(
         self,
         name,
         storage_id=None,
@@ -729,15 +774,15 @@ class Folder(Content):
         name include extension
         """
         if not storage_id and obj_bytes:
-            storage_id = self._add_storage(name).get("id")
+            storage_id = await self._add_storage(name).get("id")
 
         if obj_bytes:
-            self._upload_file(storage_id, obj_bytes)
+            await self._upload_file(storage_id, obj_bytes)
 
         if not storage_id:
             return
 
-        item = self.project.app.api.dm.post_item(
+        item = await self.project.app.api.dm.post_item(
             self.project.id["dm"],
             self.id,
             storage_id,
@@ -758,21 +803,21 @@ class Folder(Content):
             )
 
     @_validate_project
-    def copy_item(self, original_item):
+    async def copy_item(self, original_item):
         """
         name include extension
         """
-        original_item.get_versions()
-        storage = self._add_storage(original_item.name)
-        item = self.project.app.api.dm.post_item(
+        await original_item.get_versions()
+        storage = await self._add_storage(original_item.name)
+        item = await self.project.app.api.dm.post_item(
             self.project.id["dm"],
             self.id,
             storage["id"],
             original_item.name,
             x_user_id=self.project.x_user_id,
-            copy_from_id=original_item.versions[len(original_item.versions)][
-                "id"
-            ],
+            copy_from_id=original_item.versions[
+                len(original_item.versions) - 1
+            ].id,
         )
 
         if item.get("data"):
@@ -787,15 +832,15 @@ class Folder(Content):
         else:
             return item
 
-    def find(self, value, key="name", shallow=True):
+    async def find(self, value, key="name", shallow=True):
         """key = name or id or path"""
         if key.lower() not in ("name", "id", "path"):
             raise ValueError()
 
         if not self.contents:
-            self.get_contents()
+            await self.get_contents()
 
-        for content, level in self._iter_contents():
+        async for content, level in self._iter_contents():
             if shallow and level != 0:
                 continue
             if getattr(content, key, None) == value:
@@ -805,11 +850,11 @@ class Folder(Content):
             "{}: {} not found in '{}'".format(key, value, self.name)
         )
 
-    def walk(self, level=0):
+    async def walk(self, level=0):
         if not self.contents:
-            self.get_contents()
+            await self.get_contents()
 
-        for content, level in self._iter_contents(level=level):
+        async for content, level in self._iter_contents(level=level):
             print("{}{}".format(" " * 4 * level, content.name))
 
 
@@ -831,8 +876,8 @@ class Item(Content):
         self.storage_id = None
 
     @_validate_project
-    def get_metadata(self):
-        self.metadata = self.project.app.api.dm.get_item(
+    async def get_metadata(self):
+        self.metadata = await self.project.app.api.dm.get_item(
             self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
         )
 
@@ -840,8 +885,8 @@ class Item(Content):
         self.deleted = self.metadata["included"][0]["attributes"]["extension"][
             "type"
         ] in (
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["a."]]["versions"]["Deleted"],
-            ForgeApp.TYPES[ForgeApp.NAMESPACES["b."]]["versions"]["Deleted"],
+            ForgeBase.TYPES[ForgeBase.NAMESPACES["a."]]["versions"]["Deleted"],
+            ForgeBase.TYPES[ForgeBase.NAMESPACES["b."]]["versions"]["Deleted"],
         )
 
         try:
@@ -855,9 +900,10 @@ class Item(Content):
             # no storage key
             pass
 
+    # TODO - untested
     @_validate_project
     @_validate_host
-    def add_version(
+    async def add_version(
         self,
         name,
         storage_id=None,
@@ -868,15 +914,15 @@ class Item(Content):
         name include extension
         """
         if not storage_id and obj_bytes:
-            storage_id = self.host._add_storage(name).get("id")
+            storage_id = await self.host._add_storage(name).get("id")
 
         if obj_bytes:
-            self.host._upload_file(storage_id, obj_bytes)
+            await self.host._upload_file(storage_id, obj_bytes)
 
         if not storage_id:
             return
 
-        version = self.project.app.api.dm.post_item_version(
+        version = await self.project.app.api.dm.post_item_version(
             self.project.id["dm"],
             storage_id,
             self.id,
@@ -902,7 +948,7 @@ class Item(Content):
             pretty_print(version)
 
     @_validate_project
-    def get_versions(self):
+    async def get_versions(self):
         self.versions = [
             Version(
                 # TODO - name or displayName
@@ -913,7 +959,7 @@ class Item(Content):
                 item=self,
                 data=version,
             )
-            for version in self.project.app.api.dm.get_item_versions(
+            for version in await self.project.app.api.dm.get_item_versions(
                 self.project.id["dm"],
                 self.id,
                 x_user_id=self.project.x_user_id,
@@ -926,16 +972,16 @@ class Item(Content):
         return self.versions
 
     @_validate_project
-    def get_publish_status(self):
-        return self.project.app.api.dm.get_publish_model_job(
+    async def get_publish_status(self):
+        return await self.project.app.api.dm.get_publish_model_job(
             self.project.id["dm"], self.id, x_user_id=self.project.x_user_id
         )
 
     @_validate_project
-    def publish(self):
-        publish_status = self.get_publish_status()
-        if not publish_status.get("errors") and not publish_status.get("data"):
-            publish_job = self.project.app.api.dm.publish_model(
+    async def publish(self):
+        publish_status = await self.get_publish_status()
+        if not publish_status.get("errors") and publish_status.get("data"):
+            publish_job = await self.project.app.api.dm.publish_model(
                 self.project.id["dm"],
                 self.id,
                 x_user_id=self.project.x_user_id,
@@ -958,9 +1004,9 @@ class Item(Content):
             )
 
     @_validate_project
-    def download(self, save=False, location=None):
+    async def download(self, save=False, location=None):
         if not getattr(self, "metadata", None):
-            self.get_metadata()
+            await self.get_metadata()
 
         if not getattr(self, "storage_id", None):
             self.project.app.logger.info(
@@ -972,7 +1018,7 @@ class Item(Content):
             return
 
         self.project.app.logger.info("Downloading Item {}".format(self.name))
-        self.bytes = self.project.app.api.dm.get_object(
+        self.bytes = await self.project.app.api.dm.get_object(
             self.bucket_key, self.object_name
         )
         self.project.app.logger.info(
@@ -986,7 +1032,7 @@ class Item(Content):
                 fp.write(self.bytes)
             self.bytes = None
 
-    def load(self):
+    async def load(self):
         if getattr(self, "filepath", None):
             with open(self.filepath, "rb") as fp:
                 self.bytes = fp.read()
@@ -1027,8 +1073,8 @@ class Version(Content):
             self._item = item
 
     @_validate_item
-    def get_metadata(self):
-        self.metadata = self.item.project.app.api.dm.get_version(
+    async def get_metadata(self):
+        self.metadata = await self.item.project.app.api.dm.get_version(
             self.item.project.id["dm"],
             self.id,
             x_user_id=self.item.project.x_user_id,
@@ -1056,9 +1102,9 @@ class Version(Content):
             self.file_size = -1
 
     @_validate_item
-    def get_details(self):
+    async def get_details(self):
         if not getattr(self, "metadata", None):
-            self.get_metadata()
+            await self.get_metadata()
 
         if not getattr(self, "storage_id", None):
             self.item.project.app.logger.info(
@@ -1068,7 +1114,7 @@ class Version(Content):
             )
             return
 
-        self.details = self.item.project.app.api.dm.get_object_details(
+        self.details = await self.item.project.app.api.dm.get_object_details(
             self.bucket_key, self.object_name
         )
         try:
@@ -1076,8 +1122,9 @@ class Version(Content):
         except (KeyError, TypeError):
             self.storage_size = -1
 
+    # TODO - untested
     @_validate_item
-    def transfer(
+    async def transfer(
         self,
         target_host,
         target_item=None,
@@ -1095,7 +1142,7 @@ class Version(Content):
             force_local: True or False
         }
         """
-        self.get_details()
+        await self.get_details()
 
         if not getattr(self, "storage_size", None):
             self.item.project.app.logger.warning(
@@ -1109,8 +1156,8 @@ class Version(Content):
         # TODO - name or displayName
         target_item = (
             target_item
-            or target_host.find(self.name)
-            or target_host.find(self.item.name)
+            or await target_host.find(self.name)
+            or await target_host.find(self.item.name)
         )
 
         if not target_item and (not force_create and self.number != 1):
@@ -1122,7 +1169,7 @@ class Version(Content):
             return
 
         elif target_item:
-            target_item.get_versions()
+            await target_item.get_versions()
             if len(target_item.versions) == self.number:
                 self.item.project.app.logger.warning(
                     "Couldn't add Version: {} of Item: '{}' because Version already exists".format(  # noqa: E501
@@ -1139,7 +1186,8 @@ class Version(Content):
                 return
 
         # TODO - name or displayName
-        tg_storage_id = target_host._add_storage(self.name).get("id")
+        tg_storage = await target_host._add_storage(self.name)
+        tg_storage_id = tg_storage.get("id")
 
         self.item.project.app.logger.info(
             "Beginning transfer of: '{}' - version: {}".format(
@@ -1148,11 +1196,13 @@ class Version(Content):
         )
 
         if not (
-            self._transfer_remote(
+            await self._transfer_remote(
                 target_host, tg_storage_id, remote, chunk_size,
             )
             if remote
-            else self._transfer_local(target_host, tg_storage_id, chunk_size)
+            else await self._transfer_local(
+                target_host, tg_storage_id, chunk_size
+            )
         ):
             return
 
@@ -1164,7 +1214,7 @@ class Version(Content):
             item_ext_type = ForgeBase._convert_extension_type(
                 self.item.extension_type, target_host.project.app.hub_type,
             )
-            target_host.add_item(
+            await target_host.add_item(
                 # TODO - name or displayName
                 self.name,
                 storage_id=tg_storage_id,
@@ -1172,7 +1222,7 @@ class Version(Content):
                 version_extension_type=version_ext_type,
             )
         else:
-            target_item.add_version(
+            await target_item.add_version(
                 # TODO - name or displayName
                 self.name,
                 storage_id=tg_storage_id,
@@ -1188,11 +1238,13 @@ class Version(Content):
         )
         return
 
-    def _transfer_remote(
+    # TODO - untested
+    async def _transfer_remote(
         self, target_host, tg_storage_id, remote, chunk_size,
     ):
         """ """
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
+        conn = TCPConnector(limit=100)
         with tqdm(
             total=self.storage_size,
             unit="iB",
@@ -1202,58 +1254,69 @@ class Version(Content):
 
             data_left = self.storage_size
             count = 0
-            while data_left > 0:
-                lower = count * chunk_size
-                upper = lower + chunk_size
-                if upper > self.storage_size:
-                    upper = self.storage_size
-                upper -= 1
+            async with ClientSession(connector=conn) as session:
+                while data_left > 0:
+                    lower = count * chunk_size
+                    upper = lower + chunk_size
+                    if upper > self.storage_size:
+                        upper = self.storage_size
+                    upper -= 1
 
-                source_headers = {"Range": "bytes={}-{}".format(lower, upper)}
-                source_headers.update(self.item.project.app.auth.header)
+                    source_headers = {
+                        "Range": "bytes={}-{}".format(lower, upper)
+                    }
+                    source_headers.update(self.item.project.app.auth.header)
 
-                target_headers = {
-                    "Content-Length": str(self.storage_size),
-                    "Session-Id": "-811577637",
-                    "Content-Range": "bytes {}-{}/{}".format(
-                        lower, upper, self.storage_size
-                    ),
-                }
-                target_headers.update(target_host.project.app.auth.header)
-
-                body = {
-                    "name": self.name,
-                    "task_id": "12345",
-                    "uid": target_host.project.x_user_id,
-                    "source": {
-                        "url": "{}/buckets/{}/objects/{}".format(
-                            OSS_V2_URL, self.bucket_key, self.object_name
+                    target_headers = {
+                        "Content-Length": str(self.storage_size),
+                        "Session-Id": "-811577637",
+                        "Content-Range": "bytes {}-{}/{}".format(
+                            lower, upper, self.storage_size
                         ),
-                        "headers": source_headers,
-                        "method": "GET",
-                        "encoding": None,
-                    },
-                    "destination": {
-                        "url": "{}/buckets/{}/objects/{}/resumable".format(
-                            OSS_V2_URL, tg_bucket_key, tg_object_name
-                        ),
-                        "headers": target_headers,
-                        "method": "PUT",
-                        "encoding": None,
-                    },
-                    "forceLocal": remote["force_local"],
-                }
+                    }
+                    target_headers.update(target_host.project.app.auth.header)
 
-                headers = {"Content-Type": "application/json; charset=utf-8"}
+                    body = {
+                        "name": self.name,
+                        "task_id": "12345",
+                        "uid": target_host.project.x_user_id,
+                        "source": {
+                            "url": "{}/buckets/{}/objects/{}".format(
+                                OSS_V2_URL, self.bucket_key, self.object_name
+                            ),
+                            "headers": source_headers,
+                            "method": "GET",
+                            "encoding": None,
+                        },
+                        "destination": {
+                            "url": "{}/buckets/{}/objects/{}/resumable".format(
+                                OSS_V2_URL, tg_bucket_key, tg_object_name
+                            ),
+                            "headers": target_headers,
+                            "method": "PUT",
+                            "encoding": None,
+                        },
+                        "forceLocal": remote["force_local"],
+                    }
 
-                data, _ = ForgeBase.session.request(
-                    "post", remote["post_url"], headers=headers, json_data=body
-                )
+                    headers = {
+                        "Content-Type": "application/json; charset=utf-8"
+                    }
+                    async with self.sem:
+                        res = await session.request(
+                            method="POST",
+                            url=remote["post_url"],
+                            headers=headers,
+                            json=body,
+                        )
+                    print(res.status)
+                    data = await self.item.project.app.api.adm._get_data(res)
+                    print(data)
 
-                pbar.update(upper - lower + 1)
-                data_left -= chunk_size
-                count += 1
-                time.sleep(0.21)
+                    pbar.update(upper - lower + 1)
+                    data_left -= chunk_size
+                    count += 1
+                    time.sleep(0.21)
 
             pbar.desc = "Sent - {}".format(self.name)
 
@@ -1273,7 +1336,7 @@ class Version(Content):
                 time.sleep(1)
                 pbar.update(1)
                 if estimate <= 5 or count % 5 == 0:
-                    details = self.item.project.app.api.dm.get_object_details(
+                    details = await self.item.project.app.api.dm.get_object_details(  # noqa: E501
                         tg_bucket_key, tg_object_name
                     )
 
@@ -1298,7 +1361,8 @@ class Version(Content):
                         )
                         return True
 
-    def _transfer_local(self, target_host, tg_storage_id, chunk_size):
+    # TODO - untested
+    async def _transfer_local(self, target_host, tg_storage_id, chunk_size):
         """ """
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
         with tqdm(
@@ -1317,13 +1381,13 @@ class Version(Content):
                     upper = self.storage_size
                 upper -= 1
 
-                chunk = self.item.project.app.api.dm.get_object(
+                chunk = await self.item.project.app.api.dm.get_object(
                     self.bucket_key,
                     self.object_name,
                     byte_range=(lower, upper),
                 )
 
-                target_host.project.app.api.dm.put_object_resumable(
+                await target_host.project.app.api.dm.put_object_resumable(
                     tg_bucket_key,
                     tg_object_name,
                     chunk,

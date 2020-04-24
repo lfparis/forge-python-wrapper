@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+
+"""documentation placeholder"""
+
 from __future__ import absolute_import
 
 import os
@@ -222,7 +226,7 @@ class ForgeAuth(ForgeBase):
             raise AttributeError("Failed to get Bearer Token")
 
     def _get_auth(self, url, headers, params):
-        data, _ = self.session.request(
+        data, success = self.session.request(
             "post", url, headers=headers, urlencode=params
         )
         self.__dict__.update(data)

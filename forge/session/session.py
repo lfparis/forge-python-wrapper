@@ -1,9 +1,13 @@
+# -*- coding: utf-8 -*-
+
+"""documentation placeholder"""
+
 from __future__ import absolute_import
 
 import json
 import sys
 
-try:
+if sys.implementation.name != "ironpython":
     from requests import codes
     from requests import Session as _Session
     from requests.adapters import HTTPAdapter
@@ -16,14 +20,7 @@ try:
         codes.partial_content,
     )
 
-except AttributeError:
-    raise AttributeError(
-        "Stack frames are disabled, please enable stack frames.\
-        If in pyRevit, place the following at the top of your file: \
-        '__fullframeengine__ = True' and reload pyRevit."
-    )
-
-try:
+else:
     from System.Net import (
         SecurityProtocolType,
         ServicePointManager,
@@ -32,32 +29,26 @@ try:
     from System.IO import File, StreamReader
     from System.Text.Encoding import UTF8
 
-    # from System.Threading import Tasks
-
     ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
 
     SUCCESS_CODES = ("OK", "Created", "Accepted", "Partial Content")
-except ImportError:
-    pass
+
 
 from ..utils import Logger  # noqa: E402
 
-logger = Logger.start(__name__)
 
-
-class Request(object):
-    def __init__(self, request, stream=False, message="", logger=None):
-        self.response = request
+class Response(object):
+    def __init__(self, response, stream=False, message="", logger=None):
+        self.response = response
         self.stream = stream
         self.message = message
-        if logger:
-            self.logger = logger
+        self.logger = logger
 
     @property
     def data(self):
         if not getattr(self, "_data", None):
             if sys.implementation.name == "ironpython":
-                pass
+                self._data = self.response[0]
             else:  # if sys.implementation.name == "cpython"
                 # if response is a json object
                 try:
@@ -71,19 +62,18 @@ class Request(object):
     def success(self):
         if not getattr(self, "_success", None):
             if sys.implementation.name == "ironpython":
-                pass
+                self._success = self.response[1]
             else:  # if sys.implementation.name == "cpython"
                 self._success = self.response.status_code in SUCCESS_CODES
 
-        if not self._success:
+        if not self._success and self.logger:
             self._log_error()
-            pass
 
         return self._success
 
     def _log_error(self):
         if sys.implementation.name == "ironpython":
-            error_msg = ""
+            error_msg = self.data
         else:  # if sys.implementation.name == "cpython"
             try:
                 response_error = (
@@ -114,7 +104,7 @@ class Request(object):
 
 class Session(object):
     def __init__(
-        self, timeout=2, max_retries=3, base_url=None, log_level="info"
+        self, timeout=5, max_retries=3, base_url=None, log_level="info"
     ):
         """
         Kwargs:
@@ -122,21 +112,19 @@ class Session(object):
             max_retries (``int``, default=3): maximum number of retries.
             base_url (``str``, optional): Base URL for this Session
         """  # noqa:E501
-        self.logger = logger
         self.log_level = log_level
+        self.logger = Logger.start(__name__)
+        self.timeout = int(timeout * 60)  # in secs
+        self.success_codes = SUCCESS_CODES
 
-        try:
+        if sys.implementation.name != "ironpython":
             self.session = _Session()
             self.session.trust_env = False
             if base_url:
                 adapter = HTTPAdapter(max_retries=max_retries)
                 self.session.mount(base_url, adapter)
-            self.timeout = int(timeout * 60)  # in secs
-            self.success_codes = (codes.ok, codes.created, codes.accepted)
-        except Exception:
+        else:
             self.session = None
-            self.timeout = int(timeout * 60 * 1000)  # in ms
-            self.success_codes = ("OK", "Created", "Accepted")
 
     @staticmethod
     def _add_url_params(url, params):
@@ -235,7 +223,7 @@ class Session(object):
         except (ConnectionError, Timeout) as e:
             raise e
 
-    def _request_ironython(self, *args, **kwargs):
+    def _request_ironpython(self, *args, **kwargs):  # noqa: C901
         method, url = args
         headers = kwargs.get("headers")
         params = kwargs.get("params")
@@ -251,7 +239,7 @@ class Session(object):
 
             web_request = WebRequest.Create(url)
             web_request.Method = method.upper()
-            web_request.Timeout = self.timeout
+            web_request.Timeout = self.timeout * 1000  # in ms
 
             # prepare headers
             if headers:
@@ -282,13 +270,20 @@ class Session(object):
                     req_stream.Write(byte_array, 0, byte_array.Length)
             try:
                 with web_request.GetResponse() as response:
+                    content_type = response.Headers.Get("Content-Type")
                     success = response.StatusDescription in SUCCESS_CODES
-
                     with response.GetResponseStream() as response_stream:
                         with StreamReader(response_stream) as stream_reader:
-                            data = json.loads(stream_reader.ReadToEnd())
-            except SystemError:
-                return None, None
+                            raw = stream_reader.ReadToEnd()
+                        try:
+                            data = json.loads(raw)
+                        except json.decoder.JSONDecodeError:
+                            print(content_type)
+                            data = raw
+                        except Exception as e:
+                            raise (e)
+            except SystemError as e:
+                return e, False
             finally:
                 web_request.Abort()
 
@@ -327,36 +322,26 @@ class Session(object):
         Returns:
             data (``json``): Body of response.
             success (``bool``): True if response returned a accepted, created or ok status code.
-        """  # noqa:E501
+        """  # noqa: E501
+
         if sys.implementation.name == "ironpython":
-            return self._request_ironpython(
-                method,
-                url,
-                headers=headers,
-                params=params,
-                json_data=json_data,
-                byte_data=byte_data,
-                urlencode=urlencode,
-                filepath=filepath,
-                stream=stream,
-            )
+            _request = self._request_ironpython
         else:  # if sys.implementation.name == "cpython"
-            response = Request(
-                self._request_cpython(
-                    method,
-                    url,
-                    headers=headers,
-                    params=params,
-                    json_data=json_data,
-                    byte_data=byte_data,
-                    urlencode=urlencode,
-                    filepath=filepath,
-                    stream=stream,
-                ),
-                message=message,
-                logger=self.logger,
-            )
-            return response.data, response.success
+            _request = self._request_cpython
+
+        req = _request(
+            method,
+            url,
+            headers=headers,
+            params=params,
+            json_data=json_data,
+            byte_data=byte_data,
+            urlencode=urlencode,
+            filepath=filepath,
+            stream=stream,
+        )
+        res = Response(req, message=message, logger=self.logger,)
+        return res.data, res.success
 
 
 if __name__ == "__main__":

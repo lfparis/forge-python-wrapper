@@ -1,4 +1,16 @@
+# -*- coding: utf-8 -*-
+
+"""documentation placeholder"""
+
 import logging
+
+_nameToLevel = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
 
 
 class Logger(object):
@@ -22,7 +34,7 @@ class Logger(object):
     @staticmethod
     def set_level(logger, level):
         level = level.upper()
-        if isinstance(level, str) and level in logging._nameToLevel:
+        if isinstance(level, str) and level in _nameToLevel:
             level = getattr(logging, level)
             logger.setLevel(level)
 

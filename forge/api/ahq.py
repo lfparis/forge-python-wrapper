@@ -4,65 +4,147 @@
 
 from __future__ import absolute_import
 
+import asyncio
 import time
 
+from aiohttp import ContentTypeError
+from json.decoder import JSONDecodeError
+
 from ..base import ForgeBase, Logger
-from ..decorators import _validate_token
+from ..decorators import _get_session
 from ..urls import HQ_V1_URL, HQ_V2_URL
 
 logger = Logger.start(__name__)
 
 
-class HQ(ForgeBase):
-    def __init__(self, *args, auth=None, log_level=None, **kwargs):
+class AHQ(ForgeBase):
+    def __init__(
+        self, *args, auth=None, log_level=None, retries=5, **kwargs,
+    ):
         self.auth = auth
         self.logger = logger
         self.log_level = log_level
+        self.retries = retries
 
-    def _get_iter(self, url, name, headers=None, params={}):
-        params["limit"] = 100
-        response = []
+    async def _request(self, *args, **kwargs):
+        res = await self.asession.request(*args, **kwargs)
         count = 0
+        step = 5
+        while res.status == 429:
+            count += step
+            time.sleep(0.1 * count ** count)
+            res = await self.asession.request(*args, **kwargs)
+
+            if count == self.retries * step:
+                break
+        if res.status == 429:
+            res.raise_for_status()
+        return res
+
+    async def _get_data(self, res):
+        try:
+            return await res.json(encoding="utf-8")
+        # else if raw data
+        except (ContentTypeError, JSONDecodeError):
+            return await res.text(encoding="utf-8")
+
+    # Pagination Methods
+
+    async def _get_page(
+        self, url, page_number, page_size, responses, headers=None, params={},
+    ):
+        params["offset"] = page_number * page_size
+        res = await self._request(
+            method="GET", url=url, headers=headers, params=params
+        )
+        # res.raise_for_status()
+        await responses.put((res, page_number))
+
+    async def _get_page_data(self, responses, page_size, done, results):
+        res, page_number = await responses.get()
+
+        page_results = await self._get_data(res)
+
+        if (page_number != 0 and len(page_results) < page_size) and (
+            not getattr(done, "last_page", None)
+            or page_number < done.last_page
+        ):
+            done.last_page = page_number
+        elif page_number == 0 and len(page_results) < page_size:
+            done.set()
+
+        results.extend(page_results)
+
+        if (
+            getattr(done, "last_page", None)
+            and len(results) >= done.last_page * page_size
+        ):
+            done.set()
+
+        responses.task_done()
+
+    @_get_session
+    async def _get_iter(self, url, name, headers=None, params={}):
+        responses = asyncio.Queue()
+        done = asyncio.Event()
+
+        page_size = 100
+        params["limit"] = page_size
+        results = []
+
+        tasks = []
+        page_number = 0
         while True:
-            params["offset"] = count * 100
-            # if self.refresh_token:
-            #     self._refresh_token()
-            data, _ = self.session.request(
-                "get", url, headers=headers, params=params
+            tasks.append(
+                asyncio.create_task(
+                    self._get_page(
+                        url,
+                        page_number,
+                        page_size,
+                        responses,
+                        headers=headers,
+                        params=params,
+                    )
+                )
             )
-            time.sleep(0.200)
-            response.extend(data)
-            count += 1
-            if len(data) < 100:
+            tasks.append(
+                asyncio.create_task(
+                    self._get_page_data(responses, page_size, done, results)
+                )
+            )
+            await asyncio.sleep(0.06)
+            page_number += 1
+            if done.is_set():
                 break
 
-        if response:
-            if isinstance(response[0], dict):
+        for t in tasks:
+            t.cancel()
+
+        if results:
+            if isinstance(results[0], dict):
                 self.logger.info(
                     "Fetched {} {} from Autodesk BIM 360".format(
-                        len(response), name
+                        len(results), name
                     )
                 )
             else:
                 self.logger.warning(
                     "No {} fetched from Autodesk BIM 360".format(name)
                 )
-        return response
+        return results
 
     # HQ V1
 
-    @_validate_token
-    def get_users(self):
+    async def get_users(self):
         url = "{}/accounts/{}/users".format(HQ_V1_URL, self.account_id)
-        return self._get_iter(url, "users", headers=self.auth.header)
+        return await self._get_iter(url, "users", headers=self.auth.header)
 
-    @_validate_token
-    def get_users_search(
+    async def get_users_search(
         self,
         name=None,
         email=None,
         company_name=None,
-        partial=True,
+        partial=1,  # aiohttp does not take booleans as param values
         limit=None,
         sort=None,
         field=None,
@@ -72,48 +154,40 @@ class HQ(ForgeBase):
         """  # noqa: E501
         params = {k: v for k, v in locals().items() if v and k != "self"}
         url = "{}/accounts/{}/users/search".format(HQ_V1_URL, self.account_id)
-        return self._get_iter(
+        return await self._get_iter(
             url, "users", headers=self.auth.header, params=params
         )
 
-    @_validate_token
-    def get_user(self, user_id):
+    @_get_session
+    async def get_user(self, user_id):
         url = "{}/accounts/{}/users/{}".format(
             HQ_V1_URL, self.account_id, user_id
         )
-        data, _ = self.session.request(
-            "get",
-            url,
-            headers=self.auth.header,
-            message="user '{}'".format(user_id),
+        res = await self._request(
+            method="GET", url=url, headers=self.auth.header
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_projects(self):
+    async def get_projects(self):
         url = "{}/accounts/{}/projects".format(HQ_V1_URL, self.account_id)
-        return self._get_iter(url, "projects", headers=self.auth.header)
+        return await self._get_iter(url, "projects", headers=self.auth.header)
 
-    @_validate_token
-    def get_project(self, project_id):
+    @_get_session
+    async def get_project(self, project_id):
         url = "{}/accounts/{}/projects/{}".format(
             HQ_V1_URL, self.account_id, project_id
         )
-        data, _ = self.session.request(
-            "get",
-            url,
-            headers=self.auth.header,
-            message="project '{}'".format(project_id),
+        res = await self._request(
+            method="GET", url=url, headers=self.auth.header
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_companies(self):
+    async def get_companies(self):
         url = "{}/accounts/{}/companies".format(HQ_V1_URL, self.account_id)
-        return self._get_iter(url, "companies", headers=self.auth.header)
+        return await self._get_iter(url, "companies", headers=self.auth.header)
 
-    @_validate_token
-    def post_project(
+    @_get_session
+    async def post_project(
         self,
         name,
         start_date=ForgeBase.TODAY_STRING,
@@ -136,27 +210,26 @@ class HQ(ForgeBase):
 
         if template:
             try:
+                # aiohttp does not take booleans as param values
                 json_data["template_project_id"] = template["id"]
-                json_data["include_locations"] = True
-                json_data["include_companies"] = True
+                json_data["include_locations"] = 1
+                json_data["include_companies"] = 1
             except KeyError:
                 pass
 
-        data, success = self.session.request(
-            "post",
-            url,
-            headers=headers,
-            json_data=json_data,
-            message="project '{}'".format(name),
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
-        if success:
+        data = await self._get_data(res)
+
+        if res.status >= 200 and res.status < 300:
             self.logger.info("Added: {}".format(name))
             return data
         else:
-            self.logger.debug("Failed to add: {}".format(name))
+            self.logger.debug(f"Failed to add '{name}': {data.get('message')}")
 
-    @_validate_token
-    def patch_project(
+    @_get_session
+    async def patch_project(
         self, project_id, name=None, status=None, project_name=None
     ):
         json_data = {}
@@ -172,42 +245,51 @@ class HQ(ForgeBase):
             headers.update(self.auth.header)
             key = list(json_data.keys())[0]
 
-            data, success = self.session.request(
-                "patch",
-                url,
-                headers=headers,
-                json_data=json_data,
-                message="project <{}: {} to {}>".format(
-                    project_name or project_id, key, json_data[key]
-                ),
+            res = await self._request(
+                method="PATCH", url=url, headers=headers, json=json_data,
             )
-            if success:
+            data = await self._get_data(res)
+
+            if res.status >= 200 and res.status < 300:
                 self.logger.info(
-                    "{}: updated {} to {}".format(
-                        project_name or project_id, key, json_data[key]
-                    )
+                    f"Updated '{project_name or project_id}' {key} to {json_data[key]}"  # noqa: E501
                 )
-                return data
+            else:
+                self.logger.debug(
+                    f"Failed to update {key} of '{project_name or project_id}': {data.get('message')}"  # noqa: E501
+                )
+
+            return data
 
     # HQ V2
 
-    @_validate_token
-    def get_project_roles(self, project_id):
+    @_get_session
+    async def get_project_roles(self, project_id):
         url = "{}/accounts/{}/projects/{}/industry_roles".format(
             HQ_V2_URL, self.account_id, project_id
         )
         headers = {"Content-Type": "application/json"}
         headers.update(self.auth.header)
-        data, _ = self.session.request(
-            "get",
-            url,
-            headers=headers,
-            message="industry roles for project '{}'".format(project_id),
+
+        res = await self._request(
+            method="GET", url=url, headers=self.auth.header
         )
+        data = await self._get_data(res)
+
+        # if success
+        if res.status >= 200 and res.status < 300:
+            self.logger.info(
+                f"Fetched industry roles for project: '{project_id}'"
+            )
+        else:
+            self.logger.debug(
+                f"Failed to get industry roles for project '{project_id}': {data.get('message')}"  # noqa: E501
+            )
+
         return data
 
-    @_validate_token
-    def post_project_users(
+    @_get_session
+    async def post_project_users(
         self,
         project_id,
         users,
@@ -240,16 +322,13 @@ class HQ(ForgeBase):
                 }
             json_data.append(user_data)
 
-        data, success = self.session.request(
-            "post",
-            url,
-            headers=headers,
-            json_data=json_data,
-            message="users to project: {}".format(project_name or project_id),
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
+        data = await self._get_data(res)
 
         # if success
-        if success:
+        if res.status >= 200 and res.status < 300:
             # users added
             if data.get("success") and data["success"] > 0:
                 for item in data["success_items"]:
@@ -296,11 +375,10 @@ class HQ(ForgeBase):
                                 project_name or project_id, e
                             )
                         )
-        if success:
             return data
 
-    @_validate_token
-    def patch_project_user(
+    @_get_session
+    async def patch_project_user(
         self,
         project_id,
         user,
@@ -324,20 +402,20 @@ class HQ(ForgeBase):
                 "x-user-id": x_user_id,
             }
             headers.update(self.auth.header)
-            data, success = self.session.request(
-                "patch",
-                url,
-                headers=headers,
-                json_data=json_data,
-                message="user '{}' in project '{}'".format(
-                    user["email"], project_name or project_id
-                ),
-            )
+            key = list(json_data.keys())[0]
 
-            if success:
+            res = await self._request(
+                method="PATCH", url=url, headers=headers, json=json_data,
+            )
+            data = await self._get_data(res)
+
+            if res.status >= 200 and res.status < 300:
                 self.logger.info(
-                    "{}: updated {}".format(
-                        project_name or project_id, user["email"]
-                    )
+                    f"Updated '{user['email']}' {key} to {json_data[key]} in '{project_name or project_id}'"  # noqa: E501
                 )
-                return data
+            else:
+                self.logger.debug(
+                    f"Failed to update '{user['email']}' {key} to {json_data[key]} in '{project_name or project_id}': {data.get('message')}"  # noqa: E501
+                )
+
+            return data

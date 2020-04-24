@@ -1,9 +1,13 @@
+# -*- coding: utf-8 -*-
+
+"""documentation placeholder"""
+
 from __future__ import absolute_import
 
 import re
 import urllib
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from .session import Session
 from .urls import BASE_URL
@@ -176,7 +180,7 @@ class ForgeBase(object):
                 "Invalid extension_type: {}".format(
                     "Expecting a string in the format '<base type>:<namespace>:<extension_type>'",  # noqa: E501
                 )
-            ) from None
+            )
 
     @staticmethod
     def _convert_extension_type(extension_type, target_namespace):
@@ -190,17 +194,6 @@ class ForgeBase(object):
                 return ForgeBase.TYPES[target_namespace][base_type][ext_type]
             except Exception:
                 return
-
-    def _validate_token(func):
-        def inner(self, *args, **kwargs):
-            now = datetime.now()
-            timedelta = int((now - self.auth.timestamp).total_seconds()) + 1
-            if timedelta >= int(self.auth.expires_in):
-                self.auth.timestamp = now
-                self.auth.refresh()
-            return func(self, *args, **kwargs)
-
-        return inner
 
     @property
     def log_level(self):

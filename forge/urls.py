@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Forge APIs urls
 https://forge.autodesk.com/en/docs/

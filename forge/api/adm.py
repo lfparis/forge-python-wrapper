@@ -4,18 +4,24 @@
 
 from __future__ import absolute_import
 
+import time
+
+from aiohttp import ContentTypeError
+from json.decoder import JSONDecodeError
+
 from ..base import ForgeBase, Logger
-from ..decorators import _validate_token
+from ..decorators import _get_session
 from ..urls import DATA_V1_URL, PROJECT_V1_URL, OSS_V2_URL
 
 logger = Logger.start(__name__)
 
 
-class DM(ForgeBase):
-    def __init__(self, *args, auth=None, log_level=None, **kwargs):
+class ADM(ForgeBase):
+    def __init__(self, *args, auth=None, log_level=None, retries=5, **kwargs):
         self.auth = auth
         self.logger = logger
         self.log_level = log_level
+        self.retries = retries
 
     def _set_headers(self, x_user_id=None):
         headers = {}
@@ -24,47 +30,77 @@ class DM(ForgeBase):
         headers.update(self.auth.header)
         return headers
 
-    def _get_iter(self, url, params={}, x_user_id=None):
+    async def _request(self, *args, **kwargs):
+        res = await self.asession.request(*args, **kwargs)
+        count = 0
+        step = 5
+        while res.status == 429:
+            count += step
+            time.sleep(0.1 * count ** count)
+            res = await self.asession.request(*args, **kwargs)
+
+            if count == self.retries * step:
+                break
+        if res.status == 429:
+            res.raise_for_status()
+        return res
+
+    async def _get_data(self, res):
+        try:
+            return await res.json(encoding="utf-8")
+        # else if raw data
+        except JSONDecodeError:
+            return await res.text(encoding="utf-8")
+        except ContentTypeError:
+            return await res.read()
+
+    # Pagination Methods
+
+    @_get_session
+    async def _get_iter(self, url, params={}, x_user_id=None):
         params.update({"page[number]": 0, "page[limit]": 200})
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request(
-            "get", url, headers=headers, params=params
-        )
 
-        response_data = data.get("data") or []
-        if response_data:
+        res = await self._request(
+            method="GET", url=url, headers=headers, params=params
+        )
+        data = await self._get_data(res)
+
+        results = data.get("data") or []
+
+        if results:
             while data["links"].get("next") and data["data"]:
                 next_url = data["links"].get("next")["href"]
-                data, _ = self.session.request(
-                    "get", next_url, headers=headers
+                res = await self._request(
+                    method="GET", url=next_url, headers=headers, params=params
                 )
-                response_data.extend(data["data"])
+                data = await self._get_data(res)
+                results.extend(data.get("data"))
                 next_url = data["links"].get("next")
 
-        return response_data
+        return results
 
     # PROJECT_V1
 
-    @_validate_token
-    def get_hubs(self, x_user_id=None):
+    @_get_session
+    async def get_hubs(self, x_user_id=None):
         url = "{}/hubs".format(PROJECT_V1_URL)
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_project(self, project_id, x_user_id=None):
+    @_get_session
+    async def get_project(self, project_id, x_user_id=None):
         url = "{}/hubs/{}/projects/{}".format(
             PROJECT_V1_URL, self.hub_id, project_id
         )
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_projects(self, x_user_id=None):
+    async def get_projects(self, x_user_id=None):
         url = "{}/hubs/{}/projects".format(PROJECT_V1_URL, self.hub_id)
-        projects = self._get_iter(url, x_user_id=x_user_id)
+        projects = await self._get_iter(url, x_user_id=x_user_id)
         if projects:
             self.logger.info(
                 "Fetched {} projects from Autodesk BIM 360".format(
@@ -74,42 +110,38 @@ class DM(ForgeBase):
 
         return projects
 
-    @_validate_token
-    def get_top_folders(self, project_id, x_user_id=None):
+    @_get_session
+    async def get_top_folders(self, project_id, x_user_id=None):
         url = "{}/hubs/{}/projects/{}/topFolders".format(
             PROJECT_V1_URL, self.hub_id, project_id
         )
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request(
-            "get",
-            url,
-            headers=headers,
-            message="top folders for project '{}'".format(project_id),
-        )
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
     # DATA_V1
 
-    @_validate_token
-    def get_folder(self, project_id, folder_id, x_user_id=None):
+    @_get_session
+    async def get_folder(self, project_id, folder_id, x_user_id=None):
         url = "{}/projects/{}/folders/{}".format(
             DATA_V1_URL, project_id, folder_id
         )
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_folder_contents(
+    async def get_folder_contents(
         self, project_id, folder_id, include_hidden=False, x_user_id=None
     ):
         url = "{}/projects/{}/folders/{}/contents".format(
             DATA_V1_URL, project_id, folder_id
         )
         params = {
-            "includeHidden": include_hidden,
+            "includeHidden": int(include_hidden),
         }
-        contents = self._get_iter(url, params=params, x_user_id=x_user_id)
+        contents = await self._get_iter(
+            url, params=params, x_user_id=x_user_id
+        )
         if contents:
             self.logger.debug(
                 "Fetched {} items from project: {}, folder: {}".format(
@@ -119,22 +151,20 @@ class DM(ForgeBase):
 
         return contents
 
-    @_validate_token
-    def get_item(self, project_id, item_id, x_user_id=None):
+    @_get_session
+    async def get_item(self, project_id, item_id, x_user_id=None):
         url = "{}/projects/{}/items/{}".format(
             DATA_V1_URL, project_id, item_id
         )
-        print(url)
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_item_versions(self, project_id, item_id, x_user_id=None):
+    async def get_item_versions(self, project_id, item_id, x_user_id=None):
         url = "{}/projects/{}/items/{}/versions".format(
             DATA_V1_URL, project_id, item_id
         )
-        versions = self._get_iter(url, x_user_id=x_user_id)
+        versions = await self._get_iter(url, x_user_id=x_user_id)
         if versions:
             self.logger.debug(
                 "Fetched {} versions from item: {} in project: {}".format(
@@ -144,37 +174,39 @@ class DM(ForgeBase):
 
         return versions
 
-    @_validate_token
-    def get_version(self, project_id, version_id, x_user_id=None):
+    @_get_session
+    async def get_version(self, project_id, version_id, x_user_id=None):
         url = "{}/projects/{}/versions/{}".format(
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_version_download_formats(
+    @_get_session
+    async def get_version_download_formats(
         self, project_id, version_id, x_user_id=None
     ):
         url = "{}/projects/{}/versions/{}/downloadFormats".format(
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_version_downloads(self, project_id, version_id, x_user_id=None):
+    @_get_session
+    async def get_version_downloads(
+        self, project_id, version_id, x_user_id=None
+    ):
         url = "{}/projects/{}/versions/{}/downloads".format(
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
         headers = self._set_headers(x_user_id)
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers)
+        return await self._get_data(res)
 
-    @_validate_token
-    def post_item(
+    @_get_session
+    async def post_item(
         self,
         project_id,
         folder_id,
@@ -235,23 +267,23 @@ class DM(ForgeBase):
             json_data["data"]["attributes"]["extension"].update(
                 {
                     "type": item_extension_type
-                    or DM.TYPES[self.hub_type]["items"]["File"]
+                    or ForgeBase.TYPES[self.hub_type]["items"]["File"]
                 }
             )
             json_data["included"][0]["attributes"]["extension"].update(
                 {
                     "type": version_extension_type
-                    or DM.TYPES[self.hub_type]["versions"]["File"]
+                    or ForgeBase.TYPES[self.hub_type]["versions"]["File"]
                 }
             )
 
-        data, _ = self.session.request(
-            "post", url, headers=headers, json_data=json_data
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def post_item_version(
+    @_get_session
+    async def post_item_version(
         self,
         project_id,
         storage_id,
@@ -283,7 +315,7 @@ class DM(ForgeBase):
             json_data["data"]["attributes"]["extension"].update(
                 {
                     "type": version_extension_type
-                    or DM.TYPES[self.hub_type]["versions"]["File"]
+                    or ForgeBase.TYPES[self.hub_type]["versions"]["File"]
                 }
             )
             json_data["data"]["relationships"].update(
@@ -294,13 +326,13 @@ class DM(ForgeBase):
         #         {"displayName": name}
         #     )
 
-        data, _ = self.session.request(
-            "post", url, headers=headers, json_data=json_data
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def post_storage(
+    @_get_session
+    async def post_storage(
         self, project_id, host_type, host_id, name, x_user_id=None,
     ):
         """
@@ -322,13 +354,13 @@ class DM(ForgeBase):
                 },
             },
         }
-        data, _ = self.session.request(
-            "post", url, headers=headers, json_data=json_data
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def post_folder(
+    @_get_session
+    async def post_folder(
         self,
         project_id,
         parent_folder_id,
@@ -346,7 +378,9 @@ class DM(ForgeBase):
                 "attributes": {
                     "name": folder_name,
                     "extension": {
-                        "type": DM.TYPES[self.hub_type]["folders"]["Folder"],
+                        "type": ForgeBase.TYPES[self.hub_type]["folders"][
+                            "Folder"
+                        ],
                         "version": "1.0",
                     },
                 },
@@ -357,16 +391,13 @@ class DM(ForgeBase):
                 },
             },
         }
-        data, success = self.session.request(
-            "post",
-            url,
-            headers=headers,
-            json_data=json_data,
-            message="folder '{}' to project '{}'".format(
-                folder_name, project_name or project_id
-            ),
+
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
-        if success:
+        data = await self._get_data(res)
+
+        if res.status >= 200 and res.status < 300:
             self.logger.info(
                 "{}: added '{}' folder".format(
                     project_name or project_id, folder_name
@@ -376,18 +407,19 @@ class DM(ForgeBase):
 
     # DATA_V1 - COMMANDS
 
-    @_validate_token
-    def _commands(self, project_id, json_data, x_user_id=None):
+    @_get_session
+    async def _commands(self, project_id, json_data, x_user_id=None):
         url = "{}/projects/{}/commands".format(DATA_V1_URL, project_id)
         headers = self._set_headers(x_user_id)
         headers.update({"Content-Type": "application/vnd.api+json"})
-        data, _ = self.session.request(
-            "post", url, headers=headers, json_data=json_data
+        res = await self._request(
+            method="POST", url=url, headers=headers, json=json_data,
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def _commands_publish(self, project_id, item_id, command, x_user_id=None):
+    async def _commands_publish(
+        self, project_id, item_id, command, x_user_id=None
+    ):
         json_data = {
             "jsonapi": {"version": "1.0"},
             "data": {
@@ -400,59 +432,61 @@ class DM(ForgeBase):
                 },
             },
         }
-        return self._commands(project_id, json_data, x_user_id=x_user_id)
+        return await self._commands(project_id, json_data, x_user_id=x_user_id)
 
-    @_validate_token
-    def get_publish_model_job(
+    async def get_publish_model_job(
         self, project_id, item_id, x_user_id=None,
     ):
-        command = DM.TYPES[self.hub_type]["commands"]["C4RModelGetPublishJob"]
-        return self._commands_publish(
+        command = ForgeBase.TYPES[self.hub_type]["commands"][
+            "C4RModelGetPublishJob"
+        ]
+        return await self._commands_publish(
             project_id, item_id, command, x_user_id=x_user_id
         )
 
-    @_validate_token
-    def publish_model(
+    async def publish_model(
         self, project_id, item_id, x_user_id=None,
     ):
-        command = DM.TYPES[self.hub_type]["commands"]["C4RModelPublish"]
-        return self._commands_publish(
+        command = ForgeBase.TYPES[self.hub_type]["commands"]["C4RModelPublish"]
+        return await self._commands_publish(
             project_id, item_id, command, x_user_id=x_user_id
         )
 
     # OSS V2
 
-    @_validate_token
-    def get_object_details(self, bucket_key, object_name):
+    @_get_session
+    async def get_object_details(self, bucket_key, object_name):
         url = "{}/buckets/{}/objects/{}/details".format(
             OSS_V2_URL, bucket_key, object_name
         )
-        data, _ = self.session.request("get", url, headers=self.auth.header)
-        return data
+        res = await self._request(
+            method="GET", url=url, headers=self.auth.header,
+        )
+        return await self._get_data(res)
 
-    @_validate_token
-    def get_object(self, bucket_key, object_name, byte_range=None):
+    @_get_session
+    async def get_object(self, bucket_key, object_name, byte_range=None):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name
         )
         headers = {k: v for k, v in self.auth.header.items()}
         if byte_range:
             headers.update({"Range": "bytes={}-{}".format(*byte_range)})
-        data, _ = self.session.request("get", url, headers=headers)
-        return data
+        res = await self._request(method="GET", url=url, headers=headers,)
+        return await self._get_data(res)
 
-    @_validate_token
-    def put_object(self, bucket_key, object_name, object_bytes):
+    @_get_session
+    async def put_object(self, bucket_key, object_name, object_bytes):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name
         )
-        data, _ = self.session.request(
-            "put", url, headers=self.auth.header, byte_data=object_bytes,
+        res = await self._request(
+            method="PUT", url=url, headers=self.auth.header, data=object_bytes
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def put_object_resumable(
+    @_get_session
+    async def put_object_resumable(
         self,
         bucket_key,
         object_name,
@@ -472,15 +506,17 @@ class DM(ForgeBase):
             ),
         }
         headers.update(self.auth.header)
-        data, _ = self.session.request(
-            "put", url, headers=headers, byte_data=object_bytes,
+        res = await self._request(
+            method="PUT", url=url, headers=headers, data=object_bytes
         )
-        return data
+        return await self._get_data(res)
 
-    @_validate_token
-    def put_object_copy(self, bucket_key, object_name, new_object_name):
+    @_get_session
+    async def put_object_copy(self, bucket_key, object_name, new_object_name):
         url = "{}/buckets/{}/objects/{}/copyto/{}".format(
             OSS_V2_URL, bucket_key, object_name, new_object_name
         )
-        data, _ = self.session.request("put", url, headers=self.auth.header)
-        return data
+        res = await self._request(
+            method="PUT", url=url, headers=self.auth.header
+        )
+        return await self._get_data(res)
