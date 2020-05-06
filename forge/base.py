@@ -5,6 +5,7 @@
 from __future__ import absolute_import
 
 import re
+import sys
 import urllib
 
 from datetime import date, timedelta
@@ -12,6 +13,12 @@ from datetime import date, timedelta
 from .session import Session
 from .urls import BASE_URL
 from .utils import Logger  # noqa:F401
+
+
+if sys.version_info >= (3, 7):
+    from asyncio import BoundedSemaphore
+
+    semaphore = BoundedSemaphore(value=50)
 
 
 class ForgeBase(object):

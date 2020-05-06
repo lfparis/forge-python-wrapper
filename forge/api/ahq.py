@@ -5,48 +5,54 @@
 from __future__ import absolute_import
 
 import asyncio
-import time
 
-from aiohttp import ContentTypeError
-from json.decoder import JSONDecodeError
+from functools import wraps
 
-from ..base import ForgeBase, Logger
-from ..decorators import _get_session
+from ..base import ForgeBase, Logger, semaphore
+from ..decorators import _async_validate_token
+from ..utils import HTTPSemaphore
 from ..urls import HQ_V1_URL, HQ_V2_URL
 
 logger = Logger.start(__name__)
 
 
 class AHQ(ForgeBase):
-    def __init__(
-        self, *args, auth=None, log_level=None, retries=5, **kwargs,
-    ):
-        self.auth = auth
-        self.logger = logger
-        self.log_level = log_level
-        self.retries = retries
+    logger = logger
 
-    async def _request(self, *args, **kwargs):
-        res = await self.asession.request(*args, **kwargs)
-        count = 0
-        step = 5
-        while res.status == 429:
-            count += step
-            time.sleep(0.1 * count ** count)
-            res = await self.asession.request(*args, **kwargs)
+    def __init__(self, app, *args, **kwargs):
+        self.app = app
+        self.log_level = self.app.log_level
+        AHQ._set_rate_limits()
 
-            if count == self.retries * step:
-                break
-        if res.status == 429:
-            res.raise_for_status()
-        return res
+    @classmethod
+    def _set_rate_limits(cls):
+        if getattr(cls, "semaphores", None):
+            return
+        hq_sem = HTTPSemaphore(value=50, interval=60, max_calls=1000)
+        cls.semaphores = {
+            AHQ.get_users.__name__: hq_sem,
+            AHQ.get_users_search.__name__: hq_sem,
+            AHQ.get_user.__name__: hq_sem,
+            AHQ.get_projects.__name__: hq_sem,
+            AHQ.get_project.__name__: hq_sem,
+            AHQ.get_companies.__name__: hq_sem,
+            AHQ.post_project.__name__: hq_sem,
+            AHQ.patch_project.__name__: hq_sem,
+            AHQ.get_project_roles.__name__: hq_sem,
+            AHQ.post_project_users.__name__: hq_sem,
+            AHQ.patch_project_user.__name__: hq_sem,
+        }
 
-    async def _get_data(self, res):
-        try:
-            return await res.json(encoding="utf-8")
-        # else if raw data
-        except (ContentTypeError, JSONDecodeError):
-            return await res.text(encoding="utf-8")
+    def _throttle(func):
+        """ """
+
+        @wraps(func)
+        @_async_validate_token
+        async def inner(self, *args, **kwargs):
+            async with AHQ.semaphores[func.__name__] and semaphore:
+                return await func(self, *args, **kwargs)
+
+        return inner
 
     # Pagination Methods
 
@@ -54,7 +60,7 @@ class AHQ(ForgeBase):
         self, url, page_number, page_size, responses, headers=None, params={},
     ):
         params["offset"] = page_number * page_size
-        res = await self._request(
+        res = await self.app._request(
             method="GET", url=url, headers=headers, params=params
         )
         # res.raise_for_status()
@@ -63,7 +69,7 @@ class AHQ(ForgeBase):
     async def _get_page_data(self, responses, page_size, done, results):
         res, page_number = await responses.get()
 
-        page_results = await self._get_data(res)
+        page_results = await self.app._get_data(res)
 
         if (page_number != 0 and len(page_results) < page_size) and (
             not getattr(done, "last_page", None)
@@ -83,8 +89,7 @@ class AHQ(ForgeBase):
 
         responses.task_done()
 
-    @_get_session
-    async def _get_iter(self, url, name, headers=None, params={}):
+    async def _get_iter(self, sema, url, name, headers=None, params={}):
         responses = asyncio.Queue()
         done = asyncio.Event()
 
@@ -95,18 +100,19 @@ class AHQ(ForgeBase):
         tasks = []
         page_number = 0
         while True:
-            tasks.append(
-                asyncio.create_task(
-                    self._get_page(
-                        url,
-                        page_number,
-                        page_size,
-                        responses,
-                        headers=headers,
-                        params=params,
+            async with sema:
+                tasks.append(
+                    asyncio.create_task(
+                        self._get_page(
+                            url,
+                            page_number,
+                            page_size,
+                            responses,
+                            headers=headers,
+                            params=params,
+                        )
                     )
                 )
-            )
             tasks.append(
                 asyncio.create_task(
                     self._get_page_data(responses, page_size, done, results)
@@ -135,10 +141,13 @@ class AHQ(ForgeBase):
 
     # HQ V1
 
+    @_throttle
     async def get_users(self):
+        sema = AHQ.semaphores["get_users"]
         url = "{}/accounts/{}/users".format(HQ_V1_URL, self.account_id)
-        return await self._get_iter(url, "users", headers=self.auth.header)
+        return await self._get_iter(sema, url, "users")
 
+    @_throttle
     async def get_users_search(
         self,
         name=None,
@@ -152,41 +161,44 @@ class AHQ(ForgeBase):
         """
         https://forge.autodesk.com/en/docs/bim360/v1/reference/http/users-search-GET/
         """  # noqa: E501
-        params = {k: v for k, v in locals().items() if v and k != "self"}
+        sema = AHQ.semaphores["get_users_search"]
+        params = {
+            k: v
+            for k, v in locals().items()
+            if v and (k != "self" and k != "sema")
+        }
         url = "{}/accounts/{}/users/search".format(HQ_V1_URL, self.account_id)
-        return await self._get_iter(
-            url, "users", headers=self.auth.header, params=params
-        )
+        return await self._get_iter(sema, url, "users", params=params)
 
-    @_get_session
+    @_throttle
     async def get_user(self, user_id):
         url = "{}/accounts/{}/users/{}".format(
             HQ_V1_URL, self.account_id, user_id
         )
-        res = await self._request(
-            method="GET", url=url, headers=self.auth.header
-        )
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url)
+        return await self.app._get_data(res)
 
+    @_throttle
     async def get_projects(self):
+        sema = AHQ.semaphores["get_projects"]
         url = "{}/accounts/{}/projects".format(HQ_V1_URL, self.account_id)
-        return await self._get_iter(url, "projects", headers=self.auth.header)
+        return await self._get_iter(sema, url, "projects")
 
-    @_get_session
+    @_throttle
     async def get_project(self, project_id):
         url = "{}/accounts/{}/projects/{}".format(
             HQ_V1_URL, self.account_id, project_id
         )
-        res = await self._request(
-            method="GET", url=url, headers=self.auth.header
-        )
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url)
+        return await self.app._get_data(res)
 
+    @_throttle
     async def get_companies(self):
+        sema = AHQ.semaphores["get_companies"]
         url = "{}/accounts/{}/companies".format(HQ_V1_URL, self.account_id)
-        return await self._get_iter(url, "companies", headers=self.auth.header)
+        return await self._get_iter(sema, url, "companies")
 
-    @_get_session
+    @_throttle
     async def post_project(
         self,
         name,
@@ -196,7 +208,6 @@ class AHQ(ForgeBase):
     ):
         url = "{}/accounts/{}/projects".format(HQ_V1_URL, self.account_id)
         headers = {"Content-Type": "application/json"}
-        headers.update(self.auth.header)
 
         json_data = {
             "name": name,
@@ -217,10 +228,10 @@ class AHQ(ForgeBase):
             except KeyError:
                 pass
 
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        data = await self._get_data(res)
+        data = await self.app._get_data(res)
 
         if res.status >= 200 and res.status < 300:
             self.logger.info("Added: {}".format(name))
@@ -228,7 +239,7 @@ class AHQ(ForgeBase):
         else:
             self.logger.debug(f"Failed to add '{name}': {data.get('message')}")
 
-    @_get_session
+    @_throttle
     async def patch_project(
         self, project_id, name=None, status=None, project_name=None
     ):
@@ -242,13 +253,12 @@ class AHQ(ForgeBase):
                 HQ_V1_URL, self.account_id, project_id
             )
             headers = {"Content-Type": "application/json"}
-            headers.update(self.auth.header)
             key = list(json_data.keys())[0]
 
-            res = await self._request(
+            res = await self.app._request(
                 method="PATCH", url=url, headers=headers, json=json_data,
             )
-            data = await self._get_data(res)
+            data = await self.app._get_data(res)
 
             if res.status >= 200 and res.status < 300:
                 self.logger.info(
@@ -263,18 +273,15 @@ class AHQ(ForgeBase):
 
     # HQ V2
 
-    @_get_session
+    @_throttle
     async def get_project_roles(self, project_id):
         url = "{}/accounts/{}/projects/{}/industry_roles".format(
             HQ_V2_URL, self.account_id, project_id
         )
         headers = {"Content-Type": "application/json"}
-        headers.update(self.auth.header)
 
-        res = await self._request(
-            method="GET", url=url, headers=self.auth.header
-        )
-        data = await self._get_data(res)
+        res = await self.app._request(method="GET", url=url)
+        data = await self.app._get_data(res)
 
         # if success
         if res.status >= 200 and res.status < 300:
@@ -288,7 +295,7 @@ class AHQ(ForgeBase):
 
         return data
 
-    @_get_session
+    @_throttle
     async def post_project_users(
         self,
         project_id,
@@ -303,7 +310,6 @@ class AHQ(ForgeBase):
             HQ_V2_URL, self.account_id, project_id
         )
         headers = {"Content-Type": "application/json", "x-user-id": x_user_id}
-        headers.update(self.auth.header)
 
         json_data = []
         for user in users:
@@ -322,10 +328,10 @@ class AHQ(ForgeBase):
                 }
             json_data.append(user_data)
 
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        data = await self._get_data(res)
+        data = await self.app._get_data(res)
 
         # if success
         if res.status >= 200 and res.status < 300:
@@ -377,7 +383,7 @@ class AHQ(ForgeBase):
                         )
             return data
 
-    @_get_session
+    @_throttle
     async def patch_project_user(
         self,
         project_id,
@@ -401,13 +407,12 @@ class AHQ(ForgeBase):
                 "Content-Type": "application/json",
                 "x-user-id": x_user_id,
             }
-            headers.update(self.auth.header)
             key = list(json_data.keys())[0]
 
-            res = await self._request(
+            res = await self.app._request(
                 method="PATCH", url=url, headers=headers, json=json_data,
             )
-            data = await self._get_data(res)
+            data = await self.app._get_data(res)
 
             if res.status >= 200 and res.status < 300:
                 self.logger.info(

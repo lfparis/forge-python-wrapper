@@ -4,22 +4,16 @@
 
 from __future__ import absolute_import
 
-import sys
-
 from datetime import datetime
+from functools import wraps
 
 from .base import ForgeBase
-
-if sys.version_info >= (3, 7):
-    from aiohttp import ClientSession, TCPConnector  # noqa: F401
-    from .utils import HTTPSemaphore
-
-    sem = HTTPSemaphore(value=50, delay=0.06, size=10)
 
 
 def _validate_app(func):
     """Project"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.app:
             raise AttributeError("An 'app' attribute has not been defined")
@@ -31,6 +25,7 @@ def _validate_app(func):
 def _validate_bim360_hub(func):
     """Forge App & Project"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if getattr(self, "app", None):
             this = self.app
@@ -57,6 +52,7 @@ def _validate_bim360_hub(func):
 def _validate_host(func):
     """Content"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.host:
             raise AttributeError("An 'host' attribute has not been defined.")
@@ -68,6 +64,7 @@ def _validate_host(func):
 def _validate_hub(func):
     """Forge App"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.hub_id:
             raise AttributeError("A 'app.hub_id' has not been defined.")
@@ -79,6 +76,7 @@ def _validate_hub(func):
 def _validate_item(func):
     """Version"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.item:
             raise AttributeError("An 'item' attribute has not been defined.")
@@ -90,6 +88,7 @@ def _validate_item(func):
 def _validate_project(func):
     """Content"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.project:
             raise AttributeError(
@@ -103,6 +102,7 @@ def _validate_project(func):
 def _validate_token(func):
     """DM & HQ"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         now = datetime.now()
         timedelta = int((now - self.auth.timestamp).total_seconds()) + 1
@@ -114,26 +114,31 @@ def _validate_token(func):
     return inner
 
 
+def _async_validate_token(func):
+    """DM & HQ"""
+
+    @wraps(func)
+    async def inner(self, *args, **kwargs):
+        now = datetime.now()
+        timedelta = int((now - self.app.auth.timestamp).total_seconds()) + 1
+        if timedelta >= int(self.app.auth.expires_in):
+            self.app.auth.timestamp = now
+            self.app.auth.refresh()
+            self.app._session.headers = self.app.auth.header
+        return await func(self, *args, **kwargs)
+
+    return inner
+
+
 def _validate_x_user_id(func):
     """Project"""
 
+    @wraps(func)
     def inner(self, *args, **kwargs):
         if not self.app.auth.three_legged and not self.x_user_id:
             raise AttributeError(
                 "An 'x_user_id' attribute has not been defined"
             )
         return func(self, *args, **kwargs)
-
-    return inner
-
-
-def _get_session(func):
-    """Async Session"""
-
-    @_validate_token
-    async def inner(self, *args, **kwargs):
-        conn = TCPConnector(limit=100)
-        async with sem, ClientSession(connector=conn) as self.asession:
-            return await func(self, *args, **kwargs)
 
     return inner

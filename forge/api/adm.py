@@ -4,103 +4,165 @@
 
 from __future__ import absolute_import
 
-import time
+from functools import wraps
 
-from aiohttp import ContentTypeError
-from json.decoder import JSONDecodeError
-
-from ..base import ForgeBase, Logger
-from ..decorators import _get_session
+from ..base import ForgeBase, Logger, semaphore
+from ..decorators import _async_validate_token
+from ..utils import HTTPSemaphore
 from ..urls import DATA_V1_URL, PROJECT_V1_URL, OSS_V2_URL
 
 logger = Logger.start(__name__)
 
 
 class ADM(ForgeBase):
-    def __init__(self, *args, auth=None, log_level=None, retries=5, **kwargs):
-        self.auth = auth
-        self.logger = logger
-        self.log_level = log_level
-        self.retries = retries
+    logger = logger
+
+    def __init__(self, app, *args, **kwargs):
+        self.app = app
+        self.log_level = self.app.log_level
+        ADM._set_rate_limits()
+
+    @classmethod
+    def _set_rate_limits(cls):
+        if getattr(cls, "semaphores", None):
+            return
+        oss_sem = HTTPSemaphore(value=50, interval=60, max_calls=1000)
+        cls.semaphores = {
+            ADM.get_hubs.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.get_project.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.get_projects.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.get_top_folders.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.get_folder.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.get_folder_contents.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.get_item.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.get_item_versions.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=800
+            ),  # noqa: E501 # fmt: off
+            ADM.get_version.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.get_version_download_formats.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.get_version_downloads.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.post_item.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.post_item_version.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.post_storage.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.post_folder.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
+            ADM.post_command.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=300
+            ),  # noqa: E501 # fmt: off
+            ADM.get_object_details.__name__: oss_sem,
+            ADM.get_object.__name__: oss_sem,
+            ADM.put_object.__name__: oss_sem,
+            ADM.put_object_resumable.__name__: oss_sem,
+            ADM.put_object_copy.__name__: oss_sem,
+        }
+
+    def _throttle(func):
+        """ """
+
+        @wraps(func)
+        @_async_validate_token
+        async def inner(self, *args, **kwargs):
+            async with ADM.semaphores[func.__name__] and semaphore:
+                return await func(self, *args, **kwargs)
+
+        return inner
 
     def _set_headers(self, x_user_id=None):
         headers = {}
         if x_user_id:
             headers = {"x-user-id": x_user_id}
-        headers.update(self.auth.header)
         return headers
-
-    async def _request(self, *args, **kwargs):
-        res = await self.asession.request(*args, **kwargs)
-        count = 0
-        step = 5
-        while res.status == 429:
-            count += step
-            time.sleep(0.1 * count ** count)
-            res = await self.asession.request(*args, **kwargs)
-
-            if count == self.retries * step:
-                break
-        if res.status == 429:
-            res.raise_for_status()
-        return res
-
-    async def _get_data(self, res):
-        try:
-            return await res.json(encoding="utf-8")
-        # else if raw data
-        except JSONDecodeError:
-            return await res.text(encoding="utf-8")
-        except ContentTypeError:
-            return await res.read()
 
     # Pagination Methods
 
-    @_get_session
-    async def _get_iter(self, url, params={}, x_user_id=None):
+    async def _get_iter(self, sema, url, params={}, x_user_id=None):
         params.update({"page[number]": 0, "page[limit]": 200})
         headers = self._set_headers(x_user_id)
 
-        res = await self._request(
+        res = await self.app._request(
             method="GET", url=url, headers=headers, params=params
         )
-        data = await self._get_data(res)
+        data = await self.app._get_data(res)
 
-        results = data.get("data") or []
+        try:
+            results = data.get("data") or []
+        except (AttributeError, KeyError, TypeError):
+            results = []
 
         if results:
-            while data["links"].get("next") and data["data"]:
+            try:
                 next_url = data["links"].get("next")["href"]
-                res = await self._request(
-                    method="GET", url=next_url, headers=headers, params=params
-                )
-                data = await self._get_data(res)
-                results.extend(data.get("data"))
-                next_url = data["links"].get("next")
+            except (AttributeError, KeyError, TypeError):
+                return results
+
+            while next_url:
+                async with sema:
+                    res = await self.app._request(
+                        method="GET", url=next_url, headers=headers
+                    )
+                    data = await self.app._get_data(res)
+                    try:
+                        results.extend(data.get("data") or [])
+                    except (AttributeError, KeyError, TypeError):
+                        pass
+
+                    try:
+                        next_url = data["links"].get("next")["href"]
+                    except (AttributeError, KeyError, TypeError):
+                        break
 
         return results
 
     # PROJECT_V1
 
-    @_get_session
+    @_throttle
     async def get_hubs(self, x_user_id=None):
         url = "{}/hubs".format(PROJECT_V1_URL)
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def get_project(self, project_id, x_user_id=None):
         url = "{}/hubs/{}/projects/{}".format(
             PROJECT_V1_URL, self.hub_id, project_id
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
+    @_throttle
     async def get_projects(self, x_user_id=None):
+        sema = ADM.semaphores["get_projects"]
         url = "{}/hubs/{}/projects".format(PROJECT_V1_URL, self.hub_id)
-        projects = await self._get_iter(url, x_user_id=x_user_id)
+        projects = await self._get_iter(sema, url, x_user_id=x_user_id)
         if projects:
             self.logger.info(
                 "Fetched {} projects from Autodesk BIM 360".format(
@@ -110,29 +172,31 @@ class ADM(ForgeBase):
 
         return projects
 
-    @_get_session
+    @_throttle
     async def get_top_folders(self, project_id, x_user_id=None):
         url = "{}/hubs/{}/projects/{}/topFolders".format(
             PROJECT_V1_URL, self.hub_id, project_id
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
     # DATA_V1
 
-    @_get_session
+    @_throttle
     async def get_folder(self, project_id, folder_id, x_user_id=None):
         url = "{}/projects/{}/folders/{}".format(
             DATA_V1_URL, project_id, folder_id
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
+    @_throttle
     async def get_folder_contents(
         self, project_id, folder_id, include_hidden=False, x_user_id=None
     ):
+        sema = ADM.semaphores["get_folder_contents"]
         url = "{}/projects/{}/folders/{}/contents".format(
             DATA_V1_URL, project_id, folder_id
         )
@@ -140,7 +204,7 @@ class ADM(ForgeBase):
             "includeHidden": int(include_hidden),
         }
         contents = await self._get_iter(
-            url, params=params, x_user_id=x_user_id
+            sema, url, params=params, x_user_id=x_user_id
         )
         if contents:
             self.logger.debug(
@@ -151,20 +215,22 @@ class ADM(ForgeBase):
 
         return contents
 
-    @_get_session
+    @_throttle
     async def get_item(self, project_id, item_id, x_user_id=None):
         url = "{}/projects/{}/items/{}".format(
             DATA_V1_URL, project_id, item_id
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
+    @_throttle
     async def get_item_versions(self, project_id, item_id, x_user_id=None):
+        sema = ADM.semaphores["get_item_versions"]
         url = "{}/projects/{}/items/{}/versions".format(
             DATA_V1_URL, project_id, item_id
         )
-        versions = await self._get_iter(url, x_user_id=x_user_id)
+        versions = await self._get_iter(sema, url, x_user_id=x_user_id)
         if versions:
             self.logger.debug(
                 "Fetched {} versions from item: {} in project: {}".format(
@@ -174,16 +240,16 @@ class ADM(ForgeBase):
 
         return versions
 
-    @_get_session
+    @_throttle
     async def get_version(self, project_id, version_id, x_user_id=None):
         url = "{}/projects/{}/versions/{}".format(
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def get_version_download_formats(
         self, project_id, version_id, x_user_id=None
     ):
@@ -191,10 +257,10 @@ class ADM(ForgeBase):
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def get_version_downloads(
         self, project_id, version_id, x_user_id=None
     ):
@@ -202,10 +268,10 @@ class ADM(ForgeBase):
             DATA_V1_URL, project_id, self._urlencode(version_id)
         )
         headers = self._set_headers(x_user_id)
-        res = await self._request(method="GET", url=url, headers=headers)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def post_item(
         self,
         project_id,
@@ -277,12 +343,12 @@ class ADM(ForgeBase):
                 }
             )
 
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        return await self._get_data(res)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def post_item_version(
         self,
         project_id,
@@ -326,12 +392,12 @@ class ADM(ForgeBase):
         #         {"displayName": name}
         #     )
 
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        return await self._get_data(res)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def post_storage(
         self, project_id, host_type, host_id, name, x_user_id=None,
     ):
@@ -354,12 +420,12 @@ class ADM(ForgeBase):
                 },
             },
         }
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        return await self._get_data(res)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def post_folder(
         self,
         project_id,
@@ -392,10 +458,10 @@ class ADM(ForgeBase):
             },
         }
 
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        data = await self._get_data(res)
+        data = await self.app._get_data(res)
 
         if res.status >= 200 and res.status < 300:
             self.logger.info(
@@ -407,15 +473,15 @@ class ADM(ForgeBase):
 
     # DATA_V1 - COMMANDS
 
-    @_get_session
-    async def _commands(self, project_id, json_data, x_user_id=None):
+    @_throttle
+    async def post_command(self, project_id, json_data, x_user_id=None):
         url = "{}/projects/{}/commands".format(DATA_V1_URL, project_id)
         headers = self._set_headers(x_user_id)
         headers.update({"Content-Type": "application/vnd.api+json"})
-        res = await self._request(
+        res = await self.app._request(
             method="POST", url=url, headers=headers, json=json_data,
         )
-        return await self._get_data(res)
+        return await self.app._get_data(res)
 
     async def _commands_publish(
         self, project_id, item_id, command, x_user_id=None
@@ -432,7 +498,9 @@ class ADM(ForgeBase):
                 },
             },
         }
-        return await self._commands(project_id, json_data, x_user_id=x_user_id)
+        return await self.post_command(
+            project_id, json_data, x_user_id=x_user_id
+        )
 
     async def get_publish_model_job(
         self, project_id, item_id, x_user_id=None,
@@ -454,38 +522,34 @@ class ADM(ForgeBase):
 
     # OSS V2
 
-    @_get_session
+    @_throttle
     async def get_object_details(self, bucket_key, object_name):
         url = "{}/buckets/{}/objects/{}/details".format(
             OSS_V2_URL, bucket_key, object_name
         )
-        res = await self._request(
-            method="GET", url=url, headers=self.auth.header,
-        )
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def get_object(self, bucket_key, object_name, byte_range=None):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name
         )
-        headers = {k: v for k, v in self.auth.header.items()}
+        headers = {}
         if byte_range:
             headers.update({"Range": "bytes={}-{}".format(*byte_range)})
-        res = await self._request(method="GET", url=url, headers=headers,)
-        return await self._get_data(res)
+        res = await self.app._request(method="GET", url=url, headers=headers,)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def put_object(self, bucket_key, object_name, object_bytes):
         url = "{}/buckets/{}/objects/{}".format(
             OSS_V2_URL, bucket_key, object_name
         )
-        res = await self._request(
-            method="PUT", url=url, headers=self.auth.header, data=object_bytes
-        )
-        return await self._get_data(res)
+        res = await self.app._request(method="PUT", url=url, data=object_bytes)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def put_object_resumable(
         self,
         bucket_key,
@@ -505,18 +569,15 @@ class ADM(ForgeBase):
                 byte_range[0], byte_range[1], total_size
             ),
         }
-        headers.update(self.auth.header)
-        res = await self._request(
+        res = await self.app._request(
             method="PUT", url=url, headers=headers, data=object_bytes
         )
-        return await self._get_data(res)
+        return await self.app._get_data(res)
 
-    @_get_session
+    @_throttle
     async def put_object_copy(self, bucket_key, object_name, new_object_name):
         url = "{}/buckets/{}/objects/{}/copyto/{}".format(
             OSS_V2_URL, bucket_key, object_name, new_object_name
         )
-        res = await self._request(
-            method="PUT", url=url, headers=self.auth.header
-        )
-        return await self._get_data(res)
+        res = await self.app._request(method="PUT", url=url)
+        return await self.app._get_data(res)

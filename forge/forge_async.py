@@ -4,11 +4,19 @@
 
 from __future__ import absolute_import
 
+import asyncio
 import os
 import time
 
-from aiohttp import ClientSession, TCPConnector
-from tqdm import tqdm
+from aiohttp import (
+    ClientConnectionError,
+    ClientConnectorError,
+    ClientSession,
+    ContentTypeError,
+    TCPConnector,
+)
+from json.decoder import JSONDecodeError
+from uuid import uuid4
 
 from .api import ForgeApi
 from .auth import ForgeAuth
@@ -50,8 +58,6 @@ class ForgeAppAsync(ForgeBase):
         self.logger = logger
         self.log_level = log_level
 
-        self.asession = asession
-
         self.auth = ForgeAuth(
             client_id=client_id,
             client_secret=client_secret,
@@ -64,22 +70,69 @@ class ForgeAppAsync(ForgeBase):
             log_level=log_level,
         )
 
-        self.api = ForgeApi(
-            auth=self.auth,
-            log_level=self.log_level,
-            async_apis=True,
-            asession=self.asession,
-        )
+        self.api = ForgeApi(app=self, async_apis=True)
 
         if hub_id or os.environ.get("FORGE_HUB_ID"):
             self.hub_id = hub_id or os.environ.get("FORGE_HUB_ID")
 
-        self.sem = HTTPSemaphore(value=50, delay=0.06, size=10)
+    async def __aenter__(self):
+        conn = TCPConnector(limit=100)
+        self._session = ClientSession(connector=conn, headers=self.auth.header)
+
+        conn_remote = TCPConnector(limit=100)
+        self._session_remote = ClientSession(connector=conn_remote)
+        return self
+
+    async def __aexit__(self, *err):
+        await self._session.close()
+        await self._session_remote.close()
+        self._session = None
+        self._session_remote = None
 
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(
             self.hub_id, hex(id(self))
         )
+
+    async def _request(self, *args, session=None, **kwargs):
+        if not session:
+            session = self._session
+        try:
+            res = await session.request(*args, **kwargs)
+            err = False
+        except (
+            ClientConnectionError,
+            ClientConnectorError,
+            asyncio.TimeoutError,
+        ):
+            err = True
+
+        count = 1
+        step = 5
+        while err or res.status == 429:
+            await asyncio.sleep(0.1 * count ** 2)
+
+            try:
+                res = await session.request(*args, **kwargs)
+                err = False
+            except (ClientConnectionError, ClientConnectorError):
+                err = True
+
+            if count >= self.retries * step:
+                break
+            count += step
+        if res.status == 429:
+            res.raise_for_status()
+        return res
+
+    async def _get_data(self, res):
+        try:
+            return await res.json(encoding="utf-8")
+        # else if raw data
+        except JSONDecodeError:
+            return await res.text(encoding="utf-8")
+        except ContentTypeError:
+            return await res.read()
 
     @_validate_bim360_hub
     async def _get_project_admin_data(self, project_id):
@@ -104,7 +157,10 @@ class ForgeAppAsync(ForgeBase):
 
     async def get_hubs(self):
         hubs = await self.api.dm.get_hubs()
-        self.hubs = hubs.get("data")
+        if isinstance(hubs, dict) and "data" in hubs:
+            self.hubs = hubs.get("data")
+        else:
+            self.hubs = []
 
     @_validate_hub
     async def get_projects(self, source="all"):
@@ -213,7 +269,7 @@ class ForgeAppAsync(ForgeBase):
         project = await self.api.dm.get_project(
             project_id, x_user_id=self.x_user_id
         )
-        if project.get("data"):
+        if isinstance(project, dict) and "data" in project:
             pj = Project(
                 project["data"]["attributes"]["name"],
                 project["data"]["id"][2:],
@@ -420,8 +476,11 @@ class Project(ForgeBase):
             data = await self.app.api.dm.get_top_folders(
                 self.id["dm"], x_user_id=self.x_user_id
             )
-
-            folders = data.get("data") or []
+            if isinstance(data, dict) and "data" in data:
+                folders = data.get("data") or []
+            else:
+                data = None
+                folders = []
 
             count += 1
             if count > 6:
@@ -743,14 +802,18 @@ class Folder(Content):
 
     @_validate_project
     async def _add_storage(self, name):
-        storage = await self.project.app.api.dm.post_storage(
-            self.project.id["dm"],
-            "folders",
-            self.id,
-            name,
-            x_user_id=self.project.x_user_id,
-        )
-        return storage.get("data")
+        for i in range(5):
+            storage = await self.project.app.api.dm.post_storage(
+                self.project.id["dm"],
+                "folders",
+                self.id,
+                name,
+                x_user_id=self.project.x_user_id,
+            )
+            if isinstance(storage, dict) and "data" in storage:
+                return storage.get("data")
+            else:
+                await asyncio.sleep(i ** 2)
 
     # TODO - untested
     @_validate_project
@@ -774,7 +837,11 @@ class Folder(Content):
         name include extension
         """
         if not storage_id and obj_bytes:
-            storage_id = await self._add_storage(name).get("id")
+            storage = await self._add_storage(name)
+            if isinstance(storage, dict) and "id" in storage:
+                storage_id = storage.get("id")
+            else:
+                storage_id = None
 
         if obj_bytes:
             await self._upload_file(storage_id, obj_bytes)
@@ -792,15 +859,20 @@ class Folder(Content):
             x_user_id=self.project.x_user_id,
         )
 
-        if item.get("data"):
-            return Item(
-                item["data"]["attributes"]["displayName"],
-                item["data"]["id"],
-                extension_type=item["data"]["attributes"]["extension"]["type"],
-                data=item["data"],
-                project=self.project,
-                host=self,
+        if isinstance(item, dict) and "data" in item:
+            self.contents.append(
+                Item(
+                    item["data"]["attributes"]["displayName"],
+                    item["data"]["id"],
+                    extension_type=item["data"]["attributes"]["extension"][
+                        "type"
+                    ],
+                    data=item["data"],
+                    project=self.project,
+                    host=self,
+                )
             )
+            return self.contents[-1]
 
     @_validate_project
     async def copy_item(self, original_item):
@@ -820,7 +892,7 @@ class Folder(Content):
             ].id,
         )
 
-        if item.get("data"):
+        if isinstance(item, dict) and "data" in item:
             return Item(
                 item["data"]["attributes"]["displayName"],
                 item["data"]["id"],
@@ -896,7 +968,7 @@ class Item(Content):
             self.bucket_key, self.object_name = self._unpack_storage_id(
                 self.storage_id
             )
-        except KeyError:
+        except (AttributeError, KeyError, TypeError):
             # no storage key
             pass
 
@@ -914,7 +986,11 @@ class Item(Content):
         name include extension
         """
         if not storage_id and obj_bytes:
-            storage_id = await self.host._add_storage(name).get("id")
+            storage = await self.host._add_storage(name)
+            if isinstance(storage, dict) and "id" in storage:
+                storage_id = storage.get("id")
+            else:
+                storage_id = None
 
         if obj_bytes:
             await self.host._upload_file(storage_id, obj_bytes)
@@ -931,7 +1007,7 @@ class Item(Content):
             x_user_id=self.project.x_user_id,
         )
 
-        if version.get("data"):
+        if isinstance(version, dict) and "data" in version:
             self.versions.append(
                 Version(
                     version["data"]["attributes"]["name"],
@@ -944,6 +1020,7 @@ class Item(Content):
                     data=version["data"],
                 )
             )
+            return self.versions[-1]
         else:
             pretty_print(version)
 
@@ -980,7 +1057,9 @@ class Item(Content):
     @_validate_project
     async def publish(self):
         publish_status = await self.get_publish_status()
-        if not publish_status.get("errors") and publish_status.get("data"):
+        if isinstance(publish_status, dict) and (
+            "data" in publish_status and "errors" not in publish_status
+        ):
             publish_job = await self.project.app.api.dm.publish_model(
                 self.project.id["dm"],
                 self.id,
@@ -990,7 +1069,9 @@ class Item(Content):
             self.project.app.logger.info(
                 "Published model. Status is '{}'".format(status)
             )
-        elif not publish_status.get("errors"):
+        elif (
+            isinstance(publish_status, dict) and "errors" not in publish_status
+        ):
             status = publish_status["data"]["attributes"]["status"]
             self.project.app.logger.info(
                 "Model did not need to be published. Latest version status is '{}'".format(  # noqa:E501
@@ -1039,6 +1120,10 @@ class Item(Content):
 
 
 class Version(Content):
+    # heroku / lambda semaphore
+    # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html#limits-list  # noqa: E501
+    lambda_sem = sem = HTTPSemaphore(value=50, interval=1, max_calls=5)
+
     def __init__(
         self,
         name,
@@ -1093,12 +1178,12 @@ class Version(Content):
             self.bucket_key, self.object_name = self._unpack_storage_id(
                 self.storage_id
             )
-        except KeyError:
+        except (AttributeError, KeyError, TypeError):
             self.storage_id = None
 
         try:
             self.file_size = self.metadata["data"]["attributes"]["storageSize"]
-        except KeyError:
+        except (AttributeError, KeyError, TypeError):
             self.file_size = -1
 
     @_validate_item
@@ -1119,16 +1204,15 @@ class Version(Content):
         )
         try:
             self.storage_size = self.details["size"]
-        except (KeyError, TypeError):
+        except (AttributeError, KeyError, TypeError):
             self.storage_size = -1
 
-    # TODO - untested
     @_validate_item
     async def transfer(
         self,
         target_host,
         target_item=None,
-        chunk_size=100000000,
+        chunk_size=50000000,
         force_create=False,
         remote=None,
     ):
@@ -1176,19 +1260,28 @@ class Version(Content):
                         self.number, self.name
                     )
                 )
-                return
+                return target_item
             elif len(target_item.versions) != self.number - 1:
                 self.item.project.app.logger.warning(
                     "Couldn't add Version: {} of Item: '{}' because Item has {} versions".format(  # noqa: E501
                         self.number, self.name, len(target_item.versions)
                     )
                 )
-                return
+                return target_item
 
         # TODO - name or displayName
         tg_storage = await target_host._add_storage(self.name)
-        tg_storage_id = tg_storage.get("id")
+        if isinstance(tg_storage, dict) and "id" in tg_storage:
+            tg_storage_id = tg_storage.get("id")
+        else:
+            self.item.project.app.logger.warning(
+                "Couldn't add Version: {} of Item: '{}' because: Failed to create storage".format(  # noqa: E501
+                    self.number, self.name
+                )
+            )
+            return target_item
 
+        start = time.perf_counter()
         self.item.project.app.logger.info(
             "Beginning transfer of: '{}' - version: {}".format(
                 self.name, self.number
@@ -1204,7 +1297,10 @@ class Version(Content):
                 target_host, tg_storage_id, chunk_size
             )
         ):
-            return
+            self.item.project.app.logger.warning(
+                f"Could not transfer: '{self.item.name}' version: '{self.number}'"  # noqa: E501
+            )
+            return target_item
 
         version_ext_type = ForgeBase._convert_extension_type(
             self.extension_type, target_host.project.app.hub_type,
@@ -1214,7 +1310,7 @@ class Version(Content):
             item_ext_type = ForgeBase._convert_extension_type(
                 self.item.extension_type, target_host.project.app.hub_type,
             )
-            await target_host.add_item(
+            target_item = await target_host.add_item(
                 # TODO - name or displayName
                 self.name,
                 storage_id=tg_storage_id,
@@ -1228,176 +1324,129 @@ class Version(Content):
                 storage_id=tg_storage_id,
                 version_extension_type=version_ext_type,
             )
-
+        end = time.perf_counter() - start
+        # TODO - name or displayName
         self.item.project.app.logger.info(
-            "Finished transfer of: '{}' version: '{}'".format(
-                # TODO - name or displayName
-                self.item.name,
-                self.number,
-            )
+            f"Finished transfer of: '{self.item.name}' version: '{self.number}'. ({self.storage_size/1024**2:0.2f} MBs in {end:0.2f} seconds)"  # noqa: E501
         )
-        return
+        return target_item
 
-    # TODO - untested
     async def _transfer_remote(
         self, target_host, tg_storage_id, remote, chunk_size,
     ):
         """ """
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
-        conn = TCPConnector(limit=100)
-        with tqdm(
-            total=self.storage_size,
-            unit="iB",
-            unit_scale=True,
-            desc="Sending - {}".format(self.name),
-        ) as pbar:
 
-            data_left = self.storage_size
-            count = 0
-            async with ClientSession(connector=conn) as session:
-                while data_left > 0:
-                    lower = count * chunk_size
-                    upper = lower + chunk_size
-                    if upper > self.storage_size:
-                        upper = self.storage_size
-                    upper -= 1
+        task_id = uuid4()
+        tasks = []
 
-                    source_headers = {
-                        "Range": "bytes={}-{}".format(lower, upper)
-                    }
-                    source_headers.update(self.item.project.app.auth.header)
+        data_left = self.storage_size
+        count = 0
 
-                    target_headers = {
-                        "Content-Length": str(self.storage_size),
-                        "Session-Id": "-811577637",
-                        "Content-Range": "bytes {}-{}/{}".format(
-                            lower, upper, self.storage_size
-                        ),
-                    }
-                    target_headers.update(target_host.project.app.auth.header)
+        while data_left > 0:
+            lower = count * chunk_size
+            upper = lower + chunk_size
+            if upper > self.storage_size:
+                upper = self.storage_size
+            upper -= 1
 
-                    body = {
-                        "name": self.name,
-                        "task_id": "12345",
-                        "uid": target_host.project.x_user_id,
-                        "source": {
-                            "url": "{}/buckets/{}/objects/{}".format(
-                                OSS_V2_URL, self.bucket_key, self.object_name
-                            ),
-                            "headers": source_headers,
-                            "method": "GET",
-                            "encoding": None,
-                        },
-                        "destination": {
-                            "url": "{}/buckets/{}/objects/{}/resumable".format(
-                                OSS_V2_URL, tg_bucket_key, tg_object_name
-                            ),
-                            "headers": target_headers,
-                            "method": "PUT",
-                            "encoding": None,
-                        },
-                        "forceLocal": remote["force_local"],
-                    }
+            source_headers = {f"Range": f"bytes={lower}-{upper}"}
+            source_headers.update(self.item.project.app.auth.header)
 
-                    headers = {
-                        "Content-Type": "application/json; charset=utf-8"
-                    }
-                    async with self.sem:
-                        res = await session.request(
-                            method="POST",
-                            url=remote["post_url"],
-                            headers=headers,
-                            json=body,
-                        )
-                    print(res.status)
-                    data = await self.item.project.app.api.adm._get_data(res)
-                    print(data)
+            target_headers = {
+                "Content-Length": str(self.storage_size),
+                "Session-Id": "-811577637",
+                "Content-Range": f"bytes {lower}-{upper}/{self.storage_size}",  # noqa: E501
+            }
+            target_headers.update(target_host.project.app.auth.header)
 
-                    pbar.update(upper - lower + 1)
-                    data_left -= chunk_size
-                    count += 1
-                    time.sleep(0.21)
+            body = {
+                "name": self.name,
+                "task_id": f"{task_id}-{count}",
+                "source": {
+                    "url": f"{OSS_V2_URL}/buckets/{self.bucket_key}/objects/{self.object_name}",  # noqa: E501
+                    "headers": source_headers,
+                    "method": "GET",
+                    "encoding": None,
+                },
+                "destination": {
+                    "url": f"{OSS_V2_URL}/buckets/{tg_bucket_key}/objects/{tg_object_name}/resumable",  # noqa: E501
+                    "headers": target_headers,
+                    "method": "PUT",
+                    "encoding": None,
+                },
+                "forceLocal": remote["force_local"],
+            }
 
-            pbar.desc = "Sent - {}".format(self.name)
+            headers = {"Content-Type": "application/json; charset=utf-8"}
 
-        Logger.set_level(ForgeBase.session.logger, "error")
+            tasks.append(
+                asyncio.create_task(
+                    self._transfer_chunk(remote["post_url"], headers, body)
+                )
+            )
 
-        estimate = self.storage_size / 20000000 + 1
+            data_left -= chunk_size
+            count += 1
+            await asyncio.sleep(0.21)
 
-        with tqdm(
-            total=estimate,
-            unit="s",
-            unit_scale=True,
-            desc="Uploading - {}".format(self.name),
-        ) as pbar:
-            count = 0
-            while True:
-                count += 1
-                time.sleep(1)
-                pbar.update(1)
-                if estimate <= 5 or count % 5 == 0:
-                    details = await self.item.project.app.api.dm.get_object_details(  # noqa: E501
-                        tg_bucket_key, tg_object_name
-                    )
+        await asyncio.gather(*tasks)
 
-                    if isinstance(details, dict) and (
-                        "size" not in details
-                        or details["size"] != self.storage_size
-                    ):
-                        if count % 5 == 0 and pbar.n + 5 > pbar.total:
-                            pbar.total = pbar.n + 5
-                        elif estimate <= 5 and pbar.n + 1 > pbar.total:
-                            pbar.total = pbar.n + 1
-                        continue
+        for i in range(6):
+            await asyncio.sleep(0.21 * (i + 1) ** 3)
+            details = await self.item.project.app.api.dm.get_object_details(
+                tg_bucket_key, tg_object_name
+            )
+            if isinstance(details, dict) and "size" in details:
+                return True
+        return False
 
-                    else:
-                        pbar.total = pbar.n
-                        pbar.desc = "Creating Item/Version - {}".format(
-                            self.name
-                        )
-                        Logger.set_level(
-                            ForgeBase.session.logger,
-                            self.item.project.app.log_level,
-                        )
-                        return True
+    async def _transfer_chunk(self, url, headers, body):
+        async with Version.lambda_sem:
+            res = await self.item.project.app._request(
+                session=self.item.project.app._session_remote,
+                method="POST",
+                url=url,
+                headers=headers,
+                json=body,
+            )
+            data = await self.item.project.app._get_data(res)
+            if res.status == 504:
+                self.item.project.app.logger.debug(
+                    f"{res.status}: {data['name']}:{data['taskId']}"
+                )
+            elif not (res.status >= 200 and res.status < 300):
+                print(res.status)
+                pretty_print(data)
 
-    # TODO - untested
+        return
+
     async def _transfer_local(self, target_host, tg_storage_id, chunk_size):
         """ """
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
-        with tqdm(
-            total=self.storage_size,
-            unit="iB",
-            unit_scale=True,
-            desc="Transferring - {}".format(self.name),
-        ) as pbar:
 
-            data_left = self.storage_size
-            count = 0
-            while data_left > 0:
-                lower = count * chunk_size
-                upper = lower + chunk_size
-                if upper > self.storage_size:
-                    upper = self.storage_size
-                upper -= 1
+        data_left = self.storage_size
+        count = 0
+        while data_left > 0:
+            lower = count * chunk_size
+            upper = lower + chunk_size
+            if upper > self.storage_size:
+                upper = self.storage_size
+            upper -= 1
 
-                chunk = await self.item.project.app.api.dm.get_object(
-                    self.bucket_key,
-                    self.object_name,
-                    byte_range=(lower, upper),
-                )
+            chunk = await self.item.project.app.api.dm.get_object(
+                self.bucket_key, self.object_name, byte_range=(lower, upper),
+            )
 
-                await target_host.project.app.api.dm.put_object_resumable(
-                    tg_bucket_key,
-                    tg_object_name,
-                    chunk,
-                    self.storage_size,
-                    (lower, upper),
-                )
+            await target_host.project.app.api.dm.put_object_resumable(
+                tg_bucket_key,
+                tg_object_name,
+                chunk,
+                self.storage_size,
+                (lower, upper),
+            )
 
-                pbar.update(chunk_size)
-                data_left -= chunk_size
-                count += 1
-            pbar.desc = "Transferred - {}".format(self.name)
+            data_left -= chunk_size
+            count += 1
 
         return True

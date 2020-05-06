@@ -4,12 +4,12 @@
 
 from __future__ import absolute_import
 
-import sys
-
 
 class ForgeApi:
     def __init__(self, *args, async_apis=False, **kwargs):
         if async_apis:
+            import sys
+
             assert sys.version_info >= (3, 7), "Python 3.7+ is required."
             from .adm import ADM
             from .ahq import AHQ

@@ -12,40 +12,52 @@ from time import sleep as tsleep
 
 class HTTPSemaphore(BoundedSemaphore):
     def __init__(
-        self, value: int = 10, delay: float = 0.06, size: int = 10, **kwargs
+        self,
+        value: int = 10,
+        interval: int = 60,  # in seconds
+        max_calls: int = 300,
+        **kwargs,
     ) -> None:
-        self.delay = delay
-        self.size = size
-        self.acquisitions = deque(maxlen=self.size)
+        """
+        https://forge.autodesk.com/en/docs/data/v2/developers_guide/rate-limiting/dm-rate-limits/
+        """  # noqa: E501
+        self.rate = float(interval) / float(max_calls)
+        # self.max = int(max_calls / interval) + 1
+        self.interval = interval
+        self.max = max_calls
+        self.acquisitions = deque(maxlen=self.max)
         super().__init__(value, **kwargs)
 
-    def _delay(self):
-        if len(self.acquisitions) == self.size:
+    def throttle(self):
+        if len(self.acquisitions) == self.max:
             first = self.acquisitions.popleft()
             last = self.acquisitions[-1]
 
-            delta = (last - first).total_seconds()
-            if delta < 1.0:
+            self.delta = (last - first).total_seconds()
+            if self.delta <= self.interval:
                 return True
             else:
                 return False
         else:
             return False
 
+    def time(self):
+        remainder = self.interval - self.delta + 0.01
+        # print(f"I have been delayed: {remainder} secs")
+        return remainder
+
     def delay(func):
         async def inner_coro(self, *args, **kwargs):
             result = await func(self, *args, **kwargs)
-            while self._delay():
-                print("I have been delayed")
-                await sleep(self.delay)
+            if self.throttle():
+                await sleep(self.time())
             self.acquisitions.append(datetime.now())
             return result
 
         def inner_func(self, *args, **kwargs):
             result = func(self, *args, **kwargs)
-            while self._delay():
-                print("I have been delayed")
-                tsleep(self.delay)
+            if self.throttle():
+                tsleep(self.time())
             self.acquisitions.append(datetime.now())
             return result
 
