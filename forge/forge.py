@@ -593,7 +593,7 @@ class Folder(Content):
             project (``Project``): The Project where this folder is.
             host (``Folder``): The host folder.
         """
-        super().__init__(*args, **kwargs)
+        super(Folder, self).__init__(*args, **kwargs)
         self.type = "folders"
         self.contents = []
 
@@ -825,7 +825,7 @@ class Item(Content):
             project (``Project``): The Project where this file is.
             host (``Folder``): The host folder.
         """
-        super().__init__(*args, **kwargs)
+        super(Item, self).__init__(*args, **kwargs)
         self.type = "items"
         self.versions = []
         self.storage_id = None

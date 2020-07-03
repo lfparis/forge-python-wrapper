@@ -4,10 +4,15 @@
 
 from __future__ import absolute_import
 
+import sys
+
 from datetime import datetime
 from functools import wraps
 
 from .base import ForgeBase
+
+if sys.version_info >= (3, 7):
+    from .extra.decorators import _async_validate_token  # noqa: F401
 
 
 def _validate_app(func):
@@ -110,22 +115,6 @@ def _validate_token(func):
             self.auth.timestamp = now
             self.auth.refresh()
         return func(self, *args, **kwargs)
-
-    return inner
-
-
-def _async_validate_token(func):
-    """DM & HQ"""
-
-    @wraps(func)
-    async def inner(self, *args, **kwargs):
-        now = datetime.now()
-        timedelta = int((now - self.app.auth.timestamp).total_seconds()) + 1
-        if timedelta >= int(self.app.auth.expires_in):
-            self.app.auth.timestamp = now
-            self.app.auth.refresh()
-            self.app._session.headers = self.app.auth.header
-        return await func(self, *args, **kwargs)
 
     return inner
 

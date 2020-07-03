@@ -12,10 +12,10 @@ logger = Logger.start(__name__)
 
 
 class DM(ForgeBase):
-    def __init__(self, *args, auth=None, log_level=None, **kwargs):
-        self.auth = auth
+    def __init__(self, *args, **kwargs):
+        self.auth = kwargs.get("auth")
         self.logger = logger
-        self.log_level = log_level
+        self.log_level = kwargs.get("log_level")
 
     def _set_headers(self, x_user_id=None):
         headers = {}
@@ -124,7 +124,15 @@ class DM(ForgeBase):
         url = "{}/projects/{}/items/{}".format(
             DATA_V1_URL, project_id, item_id
         )
-        print(url)
+        headers = self._set_headers(x_user_id)
+        data, _ = self.session.request("get", url, headers=headers)
+        return data
+
+    @_validate_token
+    def get_item_parent(self, project_id, item_id, x_user_id=None):
+        url = "{}/projects/{}/items/{}/parent".format(
+            DATA_V1_URL, project_id, item_id
+        )
         headers = self._set_headers(x_user_id)
         data, _ = self.session.request("get", url, headers=headers)
         return data

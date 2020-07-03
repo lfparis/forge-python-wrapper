@@ -14,10 +14,10 @@ logger = Logger.start(__name__)
 
 
 class HQ(ForgeBase):
-    def __init__(self, *args, auth=None, log_level=None, **kwargs):
-        self.auth = auth
+    def __init__(self, *args, **kwargs):
+        self.auth = kwargs.get("auth")
         self.logger = logger
-        self.log_level = log_level
+        self.log_level = kwargs.get("log_level")
 
     def _get_iter(self, url, name, headers=None, params={}):
         params["limit"] = 100
@@ -70,7 +70,15 @@ class HQ(ForgeBase):
         """
         https://forge.autodesk.com/en/docs/bim360/v1/reference/http/users-search-GET/
         """  # noqa: E501
-        params = {k: v for k, v in locals().items() if v and k != "self"}
+        params = {
+            "name": name,
+            "email": email,
+            "company_name": company_name,
+            "partial": partial,
+            "limit": limit,
+            "sort": sort,
+            "field": field,
+        }
         url = "{}/accounts/{}/users/search".format(HQ_V1_URL, self.account_id)
         return self._get_iter(
             url, "users", headers=self.auth.header, params=params

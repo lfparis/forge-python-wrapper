@@ -6,8 +6,8 @@ from __future__ import absolute_import
 
 
 class ForgeApi:
-    def __init__(self, *args, async_apis=False, **kwargs):
-        if async_apis:
+    def __init__(self, *args, **kwargs):
+        if kwargs.get("async_apis"):
             import sys
 
             assert sys.version_info >= (3, 7), "Python 3.7+ is required."

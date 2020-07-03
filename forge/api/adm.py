@@ -49,6 +49,9 @@ class ADM(ForgeBase):
             ADM.get_item.__name__: HTTPSemaphore(
                 value=50, interval=60, max_calls=300
             ),  # noqa: E501 # fmt: off
+            ADM.get_item_parent.__name__: HTTPSemaphore(
+                value=50, interval=60, max_calls=50
+            ),  # noqa: E501 # fmt: off
             ADM.get_item_versions.__name__: HTTPSemaphore(
                 value=50, interval=60, max_calls=800
             ),  # noqa: E501 # fmt: off
@@ -218,6 +221,15 @@ class ADM(ForgeBase):
     @_throttle
     async def get_item(self, project_id, item_id, x_user_id=None):
         url = "{}/projects/{}/items/{}".format(
+            DATA_V1_URL, project_id, item_id
+        )
+        headers = self._set_headers(x_user_id)
+        res = await self.app._request(method="GET", url=url, headers=headers)
+        return await self.app._get_data(res)
+
+    @_throttle
+    async def get_item_parent(self, project_id, item_id, x_user_id=None):
+        url = "{}/projects/{}/items/{}/parent".format(
             DATA_V1_URL, project_id, item_id
         )
         headers = self._set_headers(x_user_id)
@@ -538,7 +550,7 @@ class ADM(ForgeBase):
         headers = {}
         if byte_range:
             headers.update({"Range": "bytes={}-{}".format(*byte_range)})
-        res = await self.app._request(method="GET", url=url, headers=headers,)
+        res = await self.app._request(method="GET", url=url, headers=headers)
         return await self.app._get_data(res)
 
     @_throttle

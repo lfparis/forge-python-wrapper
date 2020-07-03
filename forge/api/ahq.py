@@ -280,7 +280,7 @@ class AHQ(ForgeBase):
         )
         headers = {"Content-Type": "application/json"}
 
-        res = await self.app._request(method="GET", url=url)
+        res = await self.app._request(method="GET", url=url, headers=headers)
         data = await self.app._get_data(res)
 
         # if success

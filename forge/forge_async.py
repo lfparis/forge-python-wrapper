@@ -109,20 +109,25 @@ class ForgeAppAsync(ForgeBase):
 
         count = 1
         step = 5
-        while err or res.status == 429:
+        while err or res.status in (408, 429, 503, 504):
             await asyncio.sleep(0.1 * count ** 2)
 
             try:
                 res = await session.request(*args, **kwargs)
                 err = False
-            except (ClientConnectionError, ClientConnectorError):
+            except (
+                ClientConnectionError,
+                ClientConnectorError,
+                asyncio.TimeoutError,
+            ):
                 err = True
 
             if count >= self.retries * step:
                 break
             count += step
-        if res.status == 429:
-            res.raise_for_status()
+        if res.status in (408, 429, 503, 504):
+            # res.raise_for_status()
+            pass
         return res
 
     async def _get_data(self, res):
