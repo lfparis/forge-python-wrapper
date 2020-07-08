@@ -71,6 +71,7 @@ class ForgeAppAsync(ForgeBase):
         )
 
         self.api = ForgeApi(app=self, async_apis=True)
+        self.retries = 5
 
         if hub_id or os.environ.get("FORGE_HUB_ID"):
             self.hub_id = hub_id or os.environ.get("FORGE_HUB_ID")
@@ -1025,6 +1026,7 @@ class Item(Content):
                     data=version["data"],
                 )
             )
+            self._version_names.append(self.versions[-1].name)
             return self.versions[-1]
         else:
             pretty_print(version)
@@ -1051,6 +1053,8 @@ class Item(Content):
         self._version_indices_by_number = {
             version.number: i for i, version in enumerate(self.versions)
         }
+
+        self._version_names = [version.name for version in self.versions][::-1]
         return self.versions
 
     @_validate_project
@@ -1247,6 +1251,9 @@ class Version(Content):
             target_item
             or await target_host.find(self.name)
             or await target_host.find(self.item.name)
+            or await target_host.find(
+                self.item._version_names[self.number - 2]
+            )
         )
 
         if not target_item and (not force_create and self.number != 1):
@@ -1332,7 +1339,7 @@ class Version(Content):
         end = time.perf_counter() - start
         # TODO - name or displayName
         self.item.project.app.logger.info(
-            f"Finished transfer of: '{self.item.name}' version: '{self.number}'. ({self.storage_size/1024**2:0.2f} MBs in {end:0.2f} seconds)"  # noqa: E501
+            f"Finished transfer of: '{self.name}' version: '{self.number}'. ({self.storage_size/1024**2:0.2f} MBs in {end:0.2f} seconds)"  # noqa: E501
         )
         return target_item
 
