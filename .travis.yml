@@ -15,6 +15,7 @@ install:
   - pip install tox tox-travis
 script: tox
 after_success:
-  - pip install pytest pytest-asyncio aiohttp selenium requests tqdm chromedriver_autoinstaller coveralls
+  - pip install pytest pytest-asyncio selenium requests tqdm chromedriver_autoinstaller coveralls
+  - if [[ $TRAVIS_PYTHON_VERSION != 2.7 ]]; then pip install aiohttp; fi
   - coverage run --source=forge setup.py test
   - coveralls
