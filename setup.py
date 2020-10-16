@@ -13,8 +13,14 @@ setup(
     author="Luis Felipe Paris",
     author_email="lfparis@gmail.com",
     url="https://github.com/lfparis/forge-python-wrapper",
-    version="0.0.1b0",
-    install_requires=["aiohttp", "pandas"],
+    version="0.0.1b1",
+    install_requires=[
+        "aiohttp",
+        "requests",
+        "selenium",
+        "chromedriver_autoinstaller",
+        "tqdm",
+    ],
     python_requires="!=2.7.*, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, !=3.6.*",  # noqa: E501
     keywords=["forge", "autodesk", "api", "async", "async.io"],
     license="The MIT License (MIT)",
