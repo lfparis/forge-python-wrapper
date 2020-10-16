@@ -3,7 +3,6 @@ language: python
 git:
   depth: 2
 python:
-  - "2.7"
   - "3.7"
   - "3.8"
 matrix:
@@ -11,7 +10,7 @@ matrix:
     python: "3.7"
     env: TOXENV=lint
 install:
-  - if [[ $TRAVIS_PYTHON_VERSION != 2.7 ]]; then pip install .; fi
+  - pip install .
   - pip install tox tox-travis
 script: tox
 after_success:
