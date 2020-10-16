@@ -2,13 +2,23 @@
 
 Forge API Client Wrapper for Python
 
+[![Python 3.7](https://img.shields.io/badge/python-3.7-blue.svg)](https://www.python.org/downloads/release/python-370)
+[![Python 3.8](https://img.shields.io/badge/python-3.8-blue.svg)](https://www.python.org/downloads/release/python-380)
+
+[![PyPI version](https://badge.fury.io/py/forge-python-wrapper.svg)](https://badge.fury.io/py/forge-python-wrapper)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/forge-python-wrapper.svg?label=pypi%20downloads)](https://pypi.org/project/forge-python-wrapper/)
+[![Build Status](https://travis-ci.org/lfparis/forge-python-wrapper.svg?branch=master)](https://travis-ci.org/lfparis/forge-python-wrapper)
+[![Coverage Status](https://coveralls.io/repos/github/lfparis/forge-python-wrapper/badge.svg?branch=master)](https://coveralls.io/github/lfparis/forge-python-wrapper?branch=master)
+
 ## Installing
 
-WIP
+```bash
+pip install forge-python-wrapper
+```
 
 ## Documentation
 
-WIP
+*coming soon*
 
 ### Usage Examples
 
