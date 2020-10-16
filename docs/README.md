@@ -18,7 +18,7 @@ pip install forge-python-wrapper
 
 ## Documentation
 
-*coming soon*
+*Coming soon!*
 
 ### Usage Examples
 
