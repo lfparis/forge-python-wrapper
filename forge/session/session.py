@@ -340,7 +340,11 @@ class Session(object):
             filepath=filepath,
             stream=stream,
         )
-        res = Response(req, message=message, logger=self.logger,)
+        res = Response(
+            req,
+            message=message,
+            logger=self.logger,
+        )
         return res.data, res.success
 
 

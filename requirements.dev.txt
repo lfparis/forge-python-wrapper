@@ -1,0 +1,18 @@
+pytest
+pytest-cov
+pytest-asyncio
+coveralls
+requests
+selenium
+tqdm
+flake8
+tox-travis
+
+wheel
+twine
+
+# Only installed in environments that can handle it; don't try running the `lint`
+# tox environment on Python < 3.6.
+black  ; python_version >="3.6"
+aiohttp  ; python_version >="3.6"
+chromedriver_autoinstaller  ; python_version >="3.6"

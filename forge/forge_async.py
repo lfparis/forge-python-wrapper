@@ -53,8 +53,7 @@ class ForgeAppAsync(ForgeBase):
         password=None,
         log_level="info",
     ):
-        """
-        """
+        """"""
         self.logger = logger
         self.log_level = log_level
 
@@ -552,7 +551,10 @@ class Project(ForgeBase):
     @_validate_bim360_hub
     @_validate_x_user_id
     async def update_user(
-        self, user, company_id=None, role_id=None,
+        self,
+        user,
+        company_id=None,
+        role_id=None,
     ):
         return await self.app.api.hq.patch_project_user(
             self.id["hq"],
@@ -732,8 +734,7 @@ class Folder(Content):
 
     @_validate_project
     async def add_sub_folder(self, folder_name):
-        """
-        """
+        """"""
         if not self.contents:
             await self.get_contents()
 
@@ -1131,7 +1132,7 @@ class Item(Content):
 class Version(Content):
     # heroku / lambda semaphore
     # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html#limits-list  # noqa: E501
-    lambda_sem = sem = HTTPSemaphore(value=50, interval=1, max_calls=5)
+    lambda_sem = HTTPSemaphore(value=50, interval=1, max_calls=5)
 
     def __init__(
         self,
@@ -1302,7 +1303,10 @@ class Version(Content):
 
         if not (
             await self._transfer_remote(
-                target_host, tg_storage_id, remote, chunk_size,
+                target_host,
+                tg_storage_id,
+                remote,
+                chunk_size,
             )
             if remote
             else await self._transfer_local(
@@ -1315,12 +1319,14 @@ class Version(Content):
             return target_item
 
         version_ext_type = ForgeBase._convert_extension_type(
-            self.extension_type, target_host.project.app.hub_type,
+            self.extension_type,
+            target_host.project.app.hub_type,
         )
 
         if force_create or self.number == 1:
             item_ext_type = ForgeBase._convert_extension_type(
-                self.item.extension_type, target_host.project.app.hub_type,
+                self.item.extension_type,
+                target_host.project.app.hub_type,
             )
             target_item = await target_host.add_item(
                 # TODO - name or displayName
@@ -1344,7 +1350,11 @@ class Version(Content):
         return target_item
 
     async def _transfer_remote(
-        self, target_host, tg_storage_id, remote, chunk_size,
+        self,
+        target_host,
+        tg_storage_id,
+        remote,
+        chunk_size,
     ):
         """ """
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)
@@ -1362,12 +1372,12 @@ class Version(Content):
                 upper = self.storage_size
             upper -= 1
 
-            source_headers = {f"Range": f"bytes={lower}-{upper}"}
+            source_headers = {"Range": f"bytes={lower}-{upper}"}
             source_headers.update(self.item.project.app.auth.header)
 
             target_headers = {
                 "Content-Length": str(self.storage_size),
-                "Session-Id": "-811577637",
+                "Session-Id": f"{task_id}",
                 "Content-Range": f"bytes {lower}-{upper}/{self.storage_size}",  # noqa: E501
             }
             target_headers.update(target_host.project.app.auth.header)
@@ -1402,16 +1412,23 @@ class Version(Content):
             count += 1
             await asyncio.sleep(0.21)
 
-        await asyncio.gather(*tasks)
+        chunk_status = await asyncio.gather(*tasks)
 
-        for i in range(6):
-            await asyncio.sleep(0.21 * (i + 1) ** 3)
-            details = await self.item.project.app.api.dm.get_object_details(
-                tg_bucket_key, tg_object_name
-            )
-            if isinstance(details, dict) and "size" in details:
+        if remote["force_local"]:
+            if 200 in chunk_status:
                 return True
-        return False
+            else:
+                return False
+
+        else:
+            for i in range(6):
+                await asyncio.sleep(0.21 * (i + 1) ** 3)
+                details = await self.item.project.app.api.dm.get_object_details(  # noqa: E501
+                    tg_bucket_key, tg_object_name
+                )
+                if isinstance(details, dict) and "size" in details:
+                    return True
+            return False
 
     async def _transfer_chunk(self, url, headers, body):
         async with Version.lambda_sem:
@@ -1431,7 +1448,7 @@ class Version(Content):
                 print(res.status)
                 pretty_print(data)
 
-        return
+            return res.status
 
     async def _transfer_local(self, target_host, tg_storage_id, chunk_size):
         """ """
@@ -1447,7 +1464,9 @@ class Version(Content):
             upper -= 1
 
             chunk = await self.item.project.app.api.dm.get_object(
-                self.bucket_key, self.object_name, byte_range=(lower, upper),
+                self.bucket_key,
+                self.object_name,
+                byte_range=(lower, upper),
             )
 
             await target_host.project.app.api.dm.put_object_resumable(

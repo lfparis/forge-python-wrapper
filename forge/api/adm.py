@@ -356,7 +356,10 @@ class ADM(ForgeBase):
             )
 
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         return await self.app._get_data(res)
 
@@ -405,13 +408,21 @@ class ADM(ForgeBase):
         #     )
 
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         return await self.app._get_data(res)
 
     @_throttle
     async def post_storage(
-        self, project_id, host_type, host_id, name, x_user_id=None,
+        self,
+        project_id,
+        host_type,
+        host_id,
+        name,
+        x_user_id=None,
     ):
         """
         host is a folder or item
@@ -433,7 +444,10 @@ class ADM(ForgeBase):
             },
         }
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         return await self.app._get_data(res)
 
@@ -471,7 +485,10 @@ class ADM(ForgeBase):
         }
 
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         data = await self.app._get_data(res)
 
@@ -491,7 +508,10 @@ class ADM(ForgeBase):
         headers = self._set_headers(x_user_id)
         headers.update({"Content-Type": "application/vnd.api+json"})
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         return await self.app._get_data(res)
 
@@ -515,7 +535,10 @@ class ADM(ForgeBase):
         )
 
     async def get_publish_model_job(
-        self, project_id, item_id, x_user_id=None,
+        self,
+        project_id,
+        item_id,
+        x_user_id=None,
     ):
         command = ForgeBase.TYPES[self.hub_type]["commands"][
             "C4RModelGetPublishJob"
@@ -525,7 +548,10 @@ class ADM(ForgeBase):
         )
 
     async def publish_model(
-        self, project_id, item_id, x_user_id=None,
+        self,
+        project_id,
+        item_id,
+        x_user_id=None,
     ):
         command = ForgeBase.TYPES[self.hub_type]["commands"]["C4RModelPublish"]
         return await self._commands_publish(

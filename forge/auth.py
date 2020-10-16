@@ -4,14 +4,15 @@
 
 from __future__ import absolute_import
 
+import chromedriver_autoinstaller
 import os
-import platform
 import sys
 
 from datetime import datetime
 from selenium.webdriver import Chrome
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import WebDriverException
 
 from .base import ForgeBase, Logger
 from .urls import AUTH_V1_URL
@@ -119,41 +120,31 @@ class ForgeAuth(ForgeBase):
         }
         url = self._compose_url(url, params)
 
+        chrome_driver_path = os.environ.get("CHROMEDRIVER_PATH")
+
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--log-level=3")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--no-sandbox")
+
+        google_chrome_path = os.environ.get("GOOGLE_CHROME_BIN")
+        if google_chrome_path:
+            chrome_options.binary_location = google_chrome_path
+
         try:
-            chrome_driver_path = os.environ.get("CHROMEDRIVER_PATH")
-            if not chrome_driver_path:
-                if platform.system() == "Windows":
-                    chrome_driver_path = os.path.normpath(
-                        os.path.join(
-                            os.path.join(__file__, os.pardir),
-                            r"assets\chromedriver\chromedriver.exe",
-                        )
-                    )
-                else:
-                    chrome_driver_path = os.path.normpath(
-                        os.path.join(
-                            os.path.join(__file__, os.pardir),
-                            "assets/chromedriver/chromedriver",
-                        )
-                    )
-                    os.environ["PATH"] += os.pathsep + os.pathsep.join(
-                        [chrome_driver_path]
-                    )
-
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--log-level=3")
-            chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--no-sandbox")
-
-            google_chrome_path = os.environ.get("GOOGLE_CHROME_BIN")
-            if google_chrome_path:
-                chrome_options.binary_location = google_chrome_path
-
             driver = Chrome(
                 executable_path=chrome_driver_path,
                 chrome_options=chrome_options,
             )
+        except (TypeError, WebDriverException):
+            chrome_driver_path = chromedriver_autoinstaller.install()
+            driver = Chrome(
+                executable_path=chrome_driver_path,
+                chrome_options=chrome_options,
+            )
+
+        try:
             driver.implicitly_wait(15)
             driver.get(url)
 
@@ -180,6 +171,8 @@ class ForgeAuth(ForgeBase):
                 "Please provide the correct user information."
                 + "\n\nException: {}".format(e)
             )
+            "chrome://settings/help"
+            "https://chromedriver.chromium.org/downloads"
             sys.exit()
 
         params = self._decompose_url(return_url)

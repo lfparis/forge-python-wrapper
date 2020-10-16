@@ -43,8 +43,7 @@ class ForgeApp(ForgeBase):
         password=None,
         log_level="info",
     ):
-        """
-        """
+        """"""
         self.logger = logger
         self.log_level = log_level
 
@@ -470,7 +469,10 @@ class Project(ForgeBase):
     @_validate_bim360_hub
     @_validate_x_user_id
     def update_user(
-        self, user, company_id=None, role_id=None,
+        self,
+        user,
+        company_id=None,
+        role_id=None,
     ):
         return self.app.api.hq.patch_project_user(
             self.id["hq"],
@@ -650,8 +652,7 @@ class Folder(Content):
 
     @_validate_project
     def add_sub_folder(self, folder_name):
-        """
-        """
+        """"""
         if not self.contents:
             self.get_contents()
 
@@ -1149,7 +1150,10 @@ class Version(Content):
 
         if not (
             self._transfer_remote(
-                target_host, tg_storage_id, remote, chunk_size,
+                target_host,
+                tg_storage_id,
+                remote,
+                chunk_size,
             )
             if remote
             else self._transfer_local(target_host, tg_storage_id, chunk_size)
@@ -1157,12 +1161,14 @@ class Version(Content):
             return
 
         version_ext_type = ForgeBase._convert_extension_type(
-            self.extension_type, target_host.project.app.hub_type,
+            self.extension_type,
+            target_host.project.app.hub_type,
         )
 
         if force_create or self.number == 1:
             item_ext_type = ForgeBase._convert_extension_type(
-                self.item.extension_type, target_host.project.app.hub_type,
+                self.item.extension_type,
+                target_host.project.app.hub_type,
             )
             target_host.add_item(
                 # TODO - name or displayName
@@ -1189,7 +1195,11 @@ class Version(Content):
         return
 
     def _transfer_remote(
-        self, target_host, tg_storage_id, remote, chunk_size,
+        self,
+        target_host,
+        tg_storage_id,
+        remote,
+        chunk_size,
     ):
         """ """
         tg_bucket_key, tg_object_name = self._unpack_storage_id(tg_storage_id)

@@ -309,7 +309,12 @@ class DM(ForgeBase):
 
     @_validate_token
     def post_storage(
-        self, project_id, host_type, host_id, name, x_user_id=None,
+        self,
+        project_id,
+        host_type,
+        host_id,
+        name,
+        x_user_id=None,
     ):
         """
         host is a folder or item
@@ -412,7 +417,10 @@ class DM(ForgeBase):
 
     @_validate_token
     def get_publish_model_job(
-        self, project_id, item_id, x_user_id=None,
+        self,
+        project_id,
+        item_id,
+        x_user_id=None,
     ):
         command = DM.TYPES[self.hub_type]["commands"]["C4RModelGetPublishJob"]
         return self._commands_publish(
@@ -421,7 +429,10 @@ class DM(ForgeBase):
 
     @_validate_token
     def publish_model(
-        self, project_id, item_id, x_user_id=None,
+        self,
+        project_id,
+        item_id,
+        x_user_id=None,
     ):
         command = DM.TYPES[self.hub_type]["commands"]["C4RModelPublish"]
         return self._commands_publish(
@@ -455,7 +466,10 @@ class DM(ForgeBase):
             OSS_V2_URL, bucket_key, object_name
         )
         data, _ = self.session.request(
-            "put", url, headers=self.auth.header, byte_data=object_bytes,
+            "put",
+            url,
+            headers=self.auth.header,
+            byte_data=object_bytes,
         )
         return data
 
@@ -481,7 +495,10 @@ class DM(ForgeBase):
         }
         headers.update(self.auth.header)
         data, _ = self.session.request(
-            "put", url, headers=headers, byte_data=object_bytes,
+            "put",
+            url,
+            headers=headers,
+            byte_data=object_bytes,
         )
         return data
 

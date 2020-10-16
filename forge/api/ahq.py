@@ -57,7 +57,13 @@ class AHQ(ForgeBase):
     # Pagination Methods
 
     async def _get_page(
-        self, url, page_number, page_size, responses, headers=None, params={},
+        self,
+        url,
+        page_number,
+        page_size,
+        responses,
+        headers=None,
+        params={},
     ):
         params["offset"] = page_number * page_size
         res = await self.app._request(
@@ -229,7 +235,10 @@ class AHQ(ForgeBase):
                 pass
 
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         data = await self.app._get_data(res)
 
@@ -256,7 +265,10 @@ class AHQ(ForgeBase):
             key = list(json_data.keys())[0]
 
             res = await self.app._request(
-                method="PATCH", url=url, headers=headers, json=json_data,
+                method="PATCH",
+                url=url,
+                headers=headers,
+                json=json_data,
             )
             data = await self.app._get_data(res)
 
@@ -329,7 +341,10 @@ class AHQ(ForgeBase):
             json_data.append(user_data)
 
         res = await self.app._request(
-            method="POST", url=url, headers=headers, json=json_data,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=json_data,
         )
         data = await self.app._get_data(res)
 
@@ -410,7 +425,10 @@ class AHQ(ForgeBase):
             key = list(json_data.keys())[0]
 
             res = await self.app._request(
-                method="PATCH", url=url, headers=headers, json=json_data,
+                method="PATCH",
+                url=url,
+                headers=headers,
+                json=json_data,
             )
             data = await self.app._get_data(res)
 
