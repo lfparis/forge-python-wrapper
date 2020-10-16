@@ -11,11 +11,10 @@ matrix:
     python: "3.7"
     env: TOXENV=lint
 install:
-  - pip install .
+  - if [[ $TRAVIS_PYTHON_VERSION != 2.7 ]]; then pip install .; fi
   - pip install tox tox-travis
 script: tox
 after_success:
-  - pip install pytest pytest-asyncio selenium requests tqdm chromedriver_autoinstaller coveralls
-  - if [[ $TRAVIS_PYTHON_VERSION != 2.7 ]]; then pip install aiohttp; fi
+  - pip install pytest pytest-asyncio coveralls
   - coverage run --source=forge setup.py test
   - coveralls
