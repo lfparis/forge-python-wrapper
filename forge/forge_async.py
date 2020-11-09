@@ -104,12 +104,23 @@ class ForgeAppAsync(ForgeBase):
             ClientConnectionError,
             ClientConnectorError,
             asyncio.TimeoutError,
-        ):
+        ) as e:
             err = True
+            self.logger.debug(e)
 
         count = 1
         step = 5
-        while err or res.status in (408, 429, 503, 504):
+        while err or res.status in (408, 429, 503):
+            self.logger.debug(kwargs)
+            try:
+                self.logger.debug(
+                    f"{res.status}: trying again - {int(count/step)+1} of {self.retries+1} times"  # noqa: E501
+                )
+            except Exception:
+                self.logger.debug(
+                    f"Connection/Timeout Error: trying again - {int(count/step)+1} of {self.retries+1} times"  # noqa: E501
+                )
+
             await asyncio.sleep(0.1 * count ** 2)
 
             try:
@@ -119,8 +130,9 @@ class ForgeAppAsync(ForgeBase):
                 ClientConnectionError,
                 ClientConnectorError,
                 asyncio.TimeoutError,
-            ):
+            ) as e:
                 err = True
+                self.logger.debug(e)
 
             if count >= self.retries * step:
                 break
@@ -128,6 +140,7 @@ class ForgeAppAsync(ForgeBase):
         if res.status in (408, 429, 503, 504):
             # res.raise_for_status()
             pass
+
         return res
 
     async def _get_data(self, res):
@@ -1132,7 +1145,7 @@ class Item(Content):
 class Version(Content):
     # heroku / lambda semaphore
     # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html#limits-list  # noqa: E501
-    lambda_sem = HTTPSemaphore(value=50, interval=1, max_calls=5)
+    lambda_sem = HTTPSemaphore(value=50, interval=60, max_calls=1000)
 
     def __init__(
         self,
@@ -1414,41 +1427,37 @@ class Version(Content):
 
         chunk_status = await asyncio.gather(*tasks)
 
-        if remote["force_local"]:
-            if 200 in chunk_status:
-                return True
-            else:
-                return False
+        if remote["force_local"] and 200 in chunk_status:
+            return True
 
-        else:
-            for i in range(6):
-                await asyncio.sleep(0.21 * (i + 1) ** 3)
-                details = await self.item.project.app.api.dm.get_object_details(  # noqa: E501
-                    tg_bucket_key, tg_object_name
-                )
-                if isinstance(details, dict) and "size" in details:
-                    return True
-            return False
+        for i in range(6):
+            await asyncio.sleep(0.21 * (i + 1) ** 3)
+            details = await self.item.project.app.api.dm.get_object_details(  # noqa: E501
+                tg_bucket_key, tg_object_name
+            )
+            if isinstance(details, dict) and "size" in details:
+                return True
+        return False
 
     async def _transfer_chunk(self, url, headers, body):
-        async with Version.lambda_sem:
-            res = await self.item.project.app._request(
-                session=self.item.project.app._session_remote,
-                method="POST",
-                url=url,
-                headers=headers,
-                json=body,
+        # async with Version.lambda_sem:
+        res = await self.item.project.app._request(
+            session=self.item.project.app._session_remote,
+            method="POST",
+            url=url,
+            headers=headers,
+            json=body,
+        )
+        data = await self.item.project.app._get_data(res)
+        if res.status == 504:
+            self.item.project.app.logger.debug(
+                f"{res.status}: {data['name']}:{data['taskId']}"
             )
-            data = await self.item.project.app._get_data(res)
-            if res.status == 504:
-                self.item.project.app.logger.debug(
-                    f"{res.status}: {data['name']}:{data['taskId']}"
-                )
-            elif not (res.status >= 200 and res.status < 300):
-                print(res.status)
-                pretty_print(data)
+        elif not (res.status >= 200 and res.status < 300):
+            # print(res.status)
+            self.logger.debug(pretty_print(data, _print=False))
 
-            return res.status
+        return res.status
 
     async def _transfer_local(self, target_host, tg_storage_id, chunk_size):
         """ """
