@@ -13,7 +13,7 @@ setup(
     author="Luis Felipe Paris",
     author_email="lfparis@gmail.com",
     url="https://github.com/lfparis/forge-python-wrapper",
-    version="0.0.1b2",
+    version="0.0.1b3",
     install_requires=[
         "aiohttp",
         "requests",

@@ -1455,7 +1455,9 @@ class Version(Content):
             )
         elif not (res.status >= 200 and res.status < 300):
             # print(res.status)
-            self.logger.debug(pretty_print(data, _print=False))
+            self.item.project.app.logger.debug(
+                pretty_print(data, _print=False)
+            )
 
         return res.status
 
