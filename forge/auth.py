@@ -4,20 +4,15 @@
 
 from __future__ import absolute_import
 
+import chromedriver_autoinstaller
 import os
 import sys
 
-try:
-    import chromedriver_autoinstaller
-
-    from selenium.webdriver import Chrome
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.common.by import By
-    from selenium.common.exceptions import WebDriverException
-except (ImportError, Exception):
-    pass
-
 from datetime import datetime
+from selenium.webdriver import Chrome
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import WebDriverException
 
 from .base import ForgeBase, Logger
 from .urls import AUTH_V1_URL
