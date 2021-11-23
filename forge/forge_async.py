@@ -89,6 +89,12 @@ class ForgeAppAsync(ForgeBase):
         self._session = None
         self._session_remote = None
 
+    async def open(self):
+        return await self.__aenter__()
+
+    async def close(self, *err):
+        await self.__aexit__(*err)
+
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(
             self.hub_id, hex(id(self))

@@ -21,7 +21,6 @@ coverage.xml
 .python-version
 
 test.py
-test_endpoint.py
 
 forge/errors.py
 
