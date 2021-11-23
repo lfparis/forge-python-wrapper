@@ -614,7 +614,7 @@ class Folder(Content):
                     yield sub_content, sub_level
 
     @_validate_project
-    def get_contents(self):
+    def get_contents(self, is_recursive=True):
         contents = self.project.app.api.dm.get_folder_contents(
             self.project.id["dm"],
             self.id,
@@ -651,7 +651,8 @@ class Folder(Content):
                         host=self,
                     )
                 )
-                self.contents[-1].get_contents()
+                if is_recursive:
+                    self.contents[-1].get_contents()
 
         return self.contents
 
