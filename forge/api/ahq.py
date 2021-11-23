@@ -11,7 +11,7 @@ from functools import wraps
 from ..base import ForgeBase, Logger, semaphore
 from ..decorators import _async_validate_token
 from ..utils import HTTPSemaphore
-from ..urls import HQ_V1_URL, HQ_V2_URL
+from ..urls import BIM_360_ADMIN_V1_URL, HQ_V1_URL, HQ_V2_URL
 
 logger = Logger.start(__name__)
 
@@ -28,8 +28,10 @@ class AHQ(ForgeBase):
     def _set_rate_limits(cls):
         if getattr(cls, "semaphores", None):
             return
-        hq_sem = HTTPSemaphore(value=50, interval=60, max_calls=1000)
+        hq_sem = HTTPSemaphore(value=100, interval=60, max_calls=1000)
+        bim360_sem = HTTPSemaphore(value=600, interval=60, max_calls=1000)
         cls.semaphores = {
+            AHQ.get_project_users.__name__: bim360_sem,
             AHQ.get_users.__name__: hq_sem,
             AHQ.get_users_search.__name__: hq_sem,
             AHQ.get_user.__name__: hq_sem,
@@ -76,6 +78,12 @@ class AHQ(ForgeBase):
         res, page_number = await responses.get()
 
         page_results = await self.app._get_data(res)
+
+        # TODO
+        try:
+            page_results = page_results["results"]
+        except Exception:
+            pass
 
         if (page_number != 0 and len(page_results) < page_size) and (
             not getattr(done, "last_page", None)
@@ -144,6 +152,14 @@ class AHQ(ForgeBase):
                     "No {} fetched from Autodesk BIM 360".format(name)
                 )
         return results
+
+    # BIM 360 ADMIN V1
+
+    @_throttle
+    async def get_project_users(self, project_id):
+        sema = AHQ.semaphores["get_users"]
+        url = "{}/projects/{}/users".format(BIM_360_ADMIN_V1_URL, project_id)
+        return await self._get_iter(sema, url, "project users")
 
     # HQ V1
 
