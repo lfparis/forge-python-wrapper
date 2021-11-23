@@ -8,7 +8,7 @@ import time
 
 from ..base import ForgeBase, Logger
 from ..decorators import _validate_token
-from ..urls import HQ_V1_URL, HQ_V2_URL
+from ..urls import BIM_360_ADMIN_V1_URL, HQ_V1_URL, HQ_V2_URL
 
 logger = Logger.start(__name__)
 
@@ -30,6 +30,13 @@ class HQ(ForgeBase):
             data, _ = self.session.request(
                 "get", url, headers=headers, params=params
             )
+
+            # TODO
+            try:
+                data = data["results"]
+            except Exception:
+                pass
+
             time.sleep(0.200)
             response.extend(data)
             count += 1
@@ -48,6 +55,13 @@ class HQ(ForgeBase):
                     "No {} fetched from Autodesk BIM 360".format(name)
                 )
         return response
+
+    # BIM 360 ADMIN V1
+
+    @_validate_token
+    def get_project_users(self, project_id):
+        url = "{}/projects/{}/users".format(BIM_360_ADMIN_V1_URL, project_id)
+        return self._get_iter(url, "project users", headers=self.auth.header)
 
     # HQ V1
 

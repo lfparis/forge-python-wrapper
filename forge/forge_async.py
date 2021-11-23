@@ -89,6 +89,12 @@ class ForgeAppAsync(ForgeBase):
         self._session = None
         self._session_remote = None
 
+    async def open(self):
+        return await self.__aenter__()
+
+    async def close(self, *err):
+        await self.__aexit__(*err)
+
     def __repr__(self):
         return "<Forge App - Hub ID: {} at {}>".format(
             self.hub_id, hex(id(self))
@@ -549,6 +555,11 @@ class Project(ForgeBase):
 
     @_validate_app
     @_validate_bim360_hub
+    async def get_users(self):
+        return await self.app.api.hq.get_project_users(self.id["hq"])
+
+    @_validate_app
+    @_validate_bim360_hub
     @_validate_x_user_id
     async def add_users(self, users, access_level="user", role_id=None):
         return await self.app.api.hq.post_project_users(
@@ -704,7 +715,7 @@ class Folder(Content):
                     yield sub_content, sub_level
 
     @_validate_project
-    async def get_contents(self):
+    async def get_contents(self, is_recursive=True):
         contents = await self.project.app.api.dm.get_folder_contents(
             self.project.id["dm"],
             self.id,
@@ -741,7 +752,8 @@ class Folder(Content):
                         host=self,
                     )
                 )
-                await self.contents[-1].get_contents()
+                if is_recursive:
+                    await self.contents[-1].get_contents()
 
         return self.contents
 
