@@ -22,6 +22,7 @@ else:
     # https://forge.autodesk.com/en/docs/bim360/v1/overview/basics/
     HQ_V1_URL = "{}/hq/v1".format(BASE_URL)
     HQ_V2_URL = "{}/hq/v2".format(BASE_URL)
+    BIM_360_ADMIN_V1_URL = "{}/bim360/admin/v1".format(BASE_URL)
 
     # Data Management API
     # https://forge.autodesk.com/en/docs/data/v2/developers_guide/basics/

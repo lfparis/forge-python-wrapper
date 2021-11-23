@@ -549,6 +549,11 @@ class Project(ForgeBase):
 
     @_validate_app
     @_validate_bim360_hub
+    async def get_users(self):
+        return await self.app.api.hq.get_project_users(self.id["hq"])
+
+    @_validate_app
+    @_validate_bim360_hub
     @_validate_x_user_id
     async def add_users(self, users, access_level="user", role_id=None):
         return await self.app.api.hq.post_project_users(
